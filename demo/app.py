@@ -31,6 +31,10 @@ REPO = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(REPO, "system"))
 
 from engine import countries, dates, explain, hitfacts, judge, load, names, resolve  # noqa: E402
+try:  # optional: the Grok cross-examiner (system/engine/crossexam.py), off without a key
+    from engine import crossexam, llm  # noqa: E402
+except Exception:  # pragma: no cover
+    crossexam = llm = None
 from engine.model import BirthClaim, Fact, PartialDate  # noqa: E402
 
 COST = {("DIFFERENT_ENTITY", "DIFFERENT_ENTITY"): 0, ("DIFFERENT_ENTITY", "SAME_ENTITY"): 3,
@@ -91,7 +95,7 @@ class State:
                         row = json.loads(line)
                         labels[row["hit_id"]] = row
         self.status = "running the engine on every hit"
-        decisions, resolutions = {}, {}
+        decisions, resolutions, items = {}, {}, []
         for hid in sorted(data.hits, key=lambda h: (str(data.hits[h].get("alert_id")), h)):
             hit = data.hits[hid]
             aid = str(hit.get("alert_id") or "")
@@ -102,9 +106,25 @@ class State:
             d = judge.decide(prof, resolutions[aid], alert)
             d.hit_id, d.alert_id = hid, aid
             decisions[hid] = d
+            items.append((d, prof, resolutions[aid], alert))
+        # same cross-examination as system/run, so the GUI shows exactly what the output file holds
+        rules_decisions = {}
+        if crossexam is not None and llm is not None and llm.available():
+            self.status = "Grok is cross-examining the clearances"
+            try:
+                new = crossexam.review_all(items, data)
+            except Exception:
+                new = {}
+            for hid, nd in new.items():
+                old = decisions.get(hid)
+                if old is not None and old.decision == "DIFFERENT_ENTITY" and nd.decision == "REVIEW":
+                    rules_decisions[hid] = old
+                    decisions[hid] = nd
         with self.lock:
             self.data, self.records, self.labels = data, rec, labels
             self.decisions, self.resolutions = decisions, resolutions
+            self.rules_decisions = rules_decisions
+            self.llm = llm.describe() if llm is not None else "rules only"
             self.run_seconds = time.time() - t
             self.ready = True
             self.status = "ready"
@@ -253,6 +273,9 @@ def summary():
         unsafe += d.decision == "DIFFERENT_ENTITY" and lab["decision"] != "DIFFERENT_ENTITY"
     return {"hits": len(ds), "alerts": len(STATE.resolutions), "by_decision": by,
             "seconds": round(STATE.run_seconds, 1), "folder": os.path.basename(STATE.folder.rstrip("/\\")),
+            "llm": getattr(STATE, "llm", "rules only"),
+            "blindfold": bool(getattr(STATE, "blindfold", False)),
+            "crossexam_downgrades": len(getattr(STATE, "rules_decisions", {})),
             "practice": {"n": len(STATE.labels), "right": right, "unsafe": unsafe, "cost": cost, "baseline": base,
                          "score": round(100.0 * max(0.0, 1 - cost / base), 1) if base else None}}
 
@@ -300,6 +323,11 @@ def hit_detail(hid):
             "place_of_birth", "primary_category", "categories", "life_status", "deceased_date")},
         "profile": show(prof), "resolution": show(res) if res else None, "court": trials,
         "label": lab,
+        "crossexam": {
+            "provider": getattr(STATE, "llm", "rules only"),
+            "downgraded": hid in getattr(STATE, "rules_decisions", {}),
+            "rules_decision": show(STATE.rules_decisions[hid]) if hid in getattr(STATE, "rules_decisions", {}) else None,
+        },
     }
 
 
@@ -310,6 +338,14 @@ def main(argv):
     folder = os.path.abspath(argv[1])
     port = int(argv[argv.index("--port") + 1]) if "--port" in argv else 8765
     STATE = State(folder)
+    if "--blindfold" in argv:
+        # Demo only: switch off our note parser so the rules miss lived-in places and verified
+        # dates of birth, then watch the Grok cross-examiner catch the clearances that go wrong.
+        resolve._parse_note = lambda note: None
+        if crossexam is not None:
+            crossexam._notes = None
+        STATE.blindfold = True
+        print("BLINDFOLD demo mode: note parser off, decisions differ from system/run on purpose")
     threading.Thread(target=STATE.build, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print("Case Review on http://127.0.0.1:%d  (data: %s). Ctrl+C to stop." % (port, folder))
