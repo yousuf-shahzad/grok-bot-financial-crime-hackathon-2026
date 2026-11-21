@@ -65,7 +65,8 @@ class NoteFacts:
 _SUCCESS = re.compile(
     r"(?i)\b(?:verified|confirmed|validated|passed|cleared|matches|processed|approved|completed)\b"
     r"|\bsuccessful(?:\s+check)?\b")
-_FAILURE = re.compile(r"(?i)\b(?:rejected|failed|expired|could not|couldn't|unable to)\b")
+_FAILURE = re.compile(
+    r"(?i)\b(?:rejected|failed|expired|could not|couldn't|unable|declined|mismatch)\b")
 _NEGATED = re.compile(r"(?i)\b(?:not|never|no|un)\b(?:\s+\w+){0,2}\s*$")
 _DOB_KW = re.compile(
     r"(?i)(?:\bb\.(?!\w)|\b(?:d\.?o\.?b\.?|date of birth|birth date|born)\b)")
@@ -95,12 +96,23 @@ _CUES = (
     re.compile(r"(?i)\bctry\s+"),
     re.compile(r"(?i)\bfrom\s+"),
     re.compile(r"(?i)\bin\s+"),
+    re.compile(r"(?i)\b(?:issuing country|issuing authority|country of issue|country of issuance|origin country)\s*(?:is|of|:)?\s*(?:the\s+)?"),
+    re.compile(r"(?i)\bfor the country\s+"),
+    re.compile(r"(?i)\ba citizen of\s+"),
+    re.compile(r"(?i)\bnationality as\s+"),
+    re.compile(r"(?i)\bthe country as\s+"),
+    re.compile(r"(?i)\bsubmitted by\s+"),
+    re.compile(r"(?i)\bprovided by\s+"),
+    re.compile(r"(?i)\borigin\s+"),
+    re.compile(r"(?i)\bwithin\s+"),
+    re.compile(r"(?i)\bfor\s+"),
 )
 _WORD = re.compile(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]*")
-_TOKEN = re.compile(r"[A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9'’/\-]*")
+# Latin Extended-A/B so accented capitals (Ć, Š, …) stay inside the name token.
+_TOKEN = re.compile(r"[0-9A-Za-z\u00C0-\u024F\u1E00-\u1EFF'’/\-]+")
 _PLACEHOLDERS = {"na", "n/a", "n.a", "n.a.", "none", "unknown", "test", "xxx", "null", "nil", "0000"}
 # All-caps cue words sit next to the name. They are not name tokens.
-_NAME_BREAKS = {"dob", "d.o.b", "d.o.b.", "born", "date", "birth", "of"}
+_NAME_BREAKS = {"dob", "d.o.b", "d.o.b.", "born", "date", "birth", "of", "id"}
 
 
 def parse(note) -> NoteFacts:
@@ -145,7 +157,16 @@ def _is_placeholder(token):
     return folded.isdigit()
 
 
+def _name_token(token):
+    """Drop a possessive so SMITH's / SMITHs still counts as a caps token."""
+    token = re.sub(r"['’]s$", "", token, flags=re.IGNORECASE)
+    if re.fullmatch(r"[A-ZÀ-ÖØ-Þ]{2,}s", token):
+        token = token[:-1]
+    return token
+
+
 def _is_caps(token):
+    token = _name_token(token)
     if token.casefold().strip(".") in _NAME_BREAKS:
         return False
     letters = [ch for ch in token if ch.isalpha()]
@@ -154,24 +175,43 @@ def _is_caps(token):
     return _is_placeholder(token)
 
 
+def _inside_parens(text, pos):
+    return text[:pos].count("(") > text[:pos].count(")")
+
+
 def _name(text):
+    """Longest caps run outside brackets. Placeholders stay in the run but are dropped."""
     runs = []
     current = []
+    current_at = None
+    prev_end = 0
     for match in _TOKEN.finditer(text):
-        token = match.group(0)
-        if _is_caps(token):
+        if current and re.search(r"[()]", text[prev_end:match.start()]):
+            runs.append((current_at, current))
+            current = []
+            current_at = None
+        token = _name_token(match.group(0))
+        if _is_caps(match.group(0)):
+            if current_at is None:
+                current_at = match.start()
             current.append(token)
         elif current:
-            runs.append(current)
+            runs.append((current_at, current))
             current = []
+            current_at = None
+        prev_end = match.end()
     if current:
-        runs.append(current)
-    runs.sort(key=len, reverse=True)
-    for run in runs:
-        real = [token for token in run if not _is_placeholder(token)]
-        if len(real) >= 2:
-            return " ".join(real)
-    return None
+        runs.append((current_at, current))
+    ranked = []
+    for start, tokens in runs:
+        real = [token for token in tokens if not _is_placeholder(token)]
+        if not real:
+            continue
+        ranked.append((_inside_parens(text, start), -len(real), start, real))
+    ranked.sort()
+    if not ranked:
+        return None
+    return " ".join(ranked[0][3])
 
 
 def _dates(text):
@@ -318,7 +358,16 @@ def _document_country(text):
         inner = match.group(1).strip()
         if _parse_date(inner) is not None:
             continue
+        # A bracketed caps alias, "(JOHNNY SMITH)", is not a document country.
+        real_caps = [tok for tok in _TOKEN.findall(inner)
+                     if _is_caps(tok) and not _is_placeholder(_name_token(tok))]
+        if len(real_caps) >= 2:
+            continue
         add(_span_country(inner))
+    for match in re.finditer(
+            r"(?i)\b((?:[A-Z][A-Za-zÀ-ÿ'’\-]+\s+){0,3}[A-Z][A-Za-zÀ-ÿ'’\-]+)\s+"
+            r"(?:national\b|documentation\b|document\b|citizen\b)", text):
+        add(_span_country(match.group(1)) or _normalise_country(match.group(1)))
     return found[0] if found else None
 
 
@@ -355,11 +404,21 @@ def _success(text):
     return bool(_CHECKED.search(text) and _DOC.search(text) and not _flag(_FAILURE, text))
 
 
+def _negated_success(text):
+    for match in _SUCCESS.finditer(text):
+        window = text[max(0, match.start() - 24):match.start()]
+        if _NEGATED.search(window):
+            return True
+    return False
+
+
 def _parse_kyc(text, created, source):
+    # A KYC-channel note is a verification unless it says the check failed.
     failure = _flag(_FAILURE, text)
-    success = _success(text)
-    if failure or not success:
-        return NoteFacts(rejected=failure, date=created, source=source)
+    if failure:
+        return NoteFacts(rejected=True, date=created, source=source)
+    if _negated_success(text):
+        return NoteFacts(date=created, source=source)
     name = _name(text)
     found = _dates(text)
     dob_item, check_item = _pick_dates(text, found)

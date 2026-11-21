@@ -250,6 +250,68 @@ class ResidenceSlotsTest(unittest.TestCase):
         self.assertFalse(facts.verified)
         self.assertIsNone(facts.dob)
 
+    def test_kyc_is_a_verification_without_a_success_keyword(self):
+        facts = parse(kyc(
+            "Registrar successfully vetted the driving licence from Spain "
+            "for JOHN SMITH, born 12 Mar 1970, on 2024-01-02."))
+        self.assertTrue(facts.verified)
+        self.assertEqual(facts.name, "JOHN SMITH")
+        self.assertEqual(facts.dob, PartialDate(1970, 3, 12))
+        self.assertEqual(facts.doc_country, "Spain")
+
+    def test_name_first_and_placeholder_surname(self):
+        facts = parse(kyc(
+            "JOHN SMITH, born 17 February 1968, had his Spain passport "
+            "successfully vetted by Registrar on 2024-02-02."))
+        self.assertTrue(facts.verified)
+        self.assertEqual(facts.doc_country, "Spain")
+        facts = parse(kyc(
+            "Registrar cleared the national ID for 0000 OKONKWO on 2024-03-03. "
+            "The issuing country is Nigeria, and the DOB is 12 Mar 1970."))
+        self.assertTrue(facts.verified)
+        self.assertEqual(facts.name, "OKONKWO")
+        self.assertEqual(facts.dob, PartialDate(1970, 3, 12))
+        self.assertEqual(facts.doc_country, "Nigeria")
+        self.assertEqual(facts.date, PartialDate(2024, 3, 3))
+
+    def test_confirming_dob_and_bracket_alias_is_not_a_country(self):
+        facts = parse(kyc(
+            "Registrar performed an identity check on 2024-04-04 for "
+            "JOHN SMITH (JOHNNY SMITH), confirming a DOB of 1970-03, "
+            "using a passport from Portugal."))
+        self.assertTrue(facts.verified)
+        self.assertEqual(facts.name, "JOHN SMITH")
+        self.assertEqual(facts.dob, PartialDate(1970, 3, None))
+        self.assertEqual(facts.doc_country, "Portugal")
+
+    def test_demonym_and_country_of_issue(self):
+        facts = parse(kyc(
+            "On 2024-05-05 Registrar verified the passport of ADA EXAMPLE, "
+            "a Nigerian national born 2 January 1990."))
+        self.assertTrue(facts.verified)
+        self.assertEqual(facts.doc_country, "Nigeria")
+        facts = parse(kyc(
+            "National ID verified for ADA EXAMPLE, born 2 January 1990, "
+            "using Registrar on 2024-05-05. The issuing country is France."))
+        self.assertEqual(facts.doc_country, "France")
+        self.assertTrue(facts.verified)
+
+    def test_accented_capital_stays_in_the_name(self):
+        facts = parse(kyc(
+            "Sumsub validated a passport for Slovenia for ANA KOVA\u0106, "
+            "born 9 February 1989, on 2024-02-02."))
+        self.assertEqual(facts.name, "ANA KOVA\u0106")
+        self.assertTrue(facts.verified)
+        self.assertEqual(facts.doc_country, "Slovenia")
+
+    def test_declined_is_not_evidence(self):
+        facts = parse(kyc(
+            "The check was declined for JOHN SMITH, born 2 January 1990, "
+            "passport from Spain."))
+        self.assertTrue(facts.rejected)
+        self.assertFalse(facts.verified)
+        self.assertIsNone(facts.name)
+
     def test_repeat_calls_match(self):
         note = kyc("Verified passport from Spain for ADA EXAMPLE, born 1968-02-17, on 2024-01-01.")
         self.assertEqual(parse(note), parse(note))
