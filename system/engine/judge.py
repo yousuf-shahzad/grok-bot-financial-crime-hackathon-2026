@@ -167,9 +167,11 @@ def decide_one(hit: HitProfile, person: Person, alert: dict) -> Decision:
             return explain.make(hit, DIFF, "DOB_MISMATCH", cid, [person], dict(base, dob=cdobs[0]))
 
     # 7. the verified legal name agrees with none of the hit's names
+    # hit names with no real parts (placeholders, initials only) are unknown, never a mismatch
     vn = person.verified_name
-    if vn is not None and hnames and names.real_part_count(str(vn.value), company) >= 2:
-        if not any(names.names_agree(str(vn.value), str(hf.value), company) for hf in hnames):
+    real_hnames = [hf for hf in hnames if names.real_part_count(str(hf.value), company) >= 1]
+    if vn is not None and real_hnames and names.real_part_count(str(vn.value), company) >= 2:
+        if not any(names.names_agree(str(vn.value), str(hf.value), company) for hf in real_hnames):
             return explain.make(hit, DIFF, "NAME_MISMATCH_VERIFIED", cid, [person], dict(base, verified=vn))
 
     # 8. no shared country (exception: name and dob agree -> REVIEW)

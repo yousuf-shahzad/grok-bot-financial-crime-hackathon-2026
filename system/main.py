@@ -97,6 +97,15 @@ def main(argv: list) -> int:
             log("main: load failed, every hit falls back to REVIEW\n" + traceback.format_exc())
             data = None
 
+    # install name_variants.json (if the loader found one) so names.py uses it over its built-in table
+    if data is not None:
+        try:
+            from engine import names as _names
+            if hasattr(_names, "use_variants"):
+                _names.use_variants(getattr(data, "name_variants", None))
+        except Exception:
+            log("main: could not install name variants, using built-in table\n" + traceback.format_exc())
+
     lines = []
     resolved = {}  # alert_id -> Resolution, resolve once per alert
     for hit in hits:
