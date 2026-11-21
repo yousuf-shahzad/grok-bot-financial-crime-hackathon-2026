@@ -87,7 +87,7 @@ export default function CaseView({ hitId, onChanged, onBack, backLabel }: { hitI
           <section className="rounded-2xl border border-gold-300 bg-gold-50 p-6 dark:bg-transparent">
             <h3 className="text-headline-semibold text-text-primary">{d.people!.length} customers fit this alert</h3>
             <p className="mt-1 text-body-2-regular text-text-secondary">
-              They share a name but are different people (records are only merged on the same phone and full date of birth, or the same document number).
+              The alert could point to any of them, and the bank's rules count them as different people: records are only merged on the same phone and full date of birth, or the same document number on an approved ID check.
               {new Set(d.people!.map((p) => p.decision)).size > 1 ? " They lead to different answers, so the bank's rules send the hit to a person." : " They all lead to the same answer."}
             </p>
             <div className="mt-4 overflow-x-auto rounded-xl border border-separator-border bg-background-primary-default">
