@@ -1,4 +1,4 @@
-# 2-minute video script
+# Tryll: 2-minute video script
 
 For the submission video (2:00 hard limit). Five parts: problem, engine and numbers, one human review, safety, close. Each part lists the shot, what to click, and the voice-over. Voice-over is about 150 words a minute, so each line fits its slot when read at a calm pace.
 
@@ -41,7 +41,7 @@ The cases used, both invented:
 **Voice-over (≈35 words):**
 > A bank screens every customer against sanctions lists. Most hits are namesakes, but each one needs an analyst. Clear a real match by mistake and the bank is exposed. Review everything and the team drowns.
 
-**On-screen text:** "Is the hit the customer?"
+**On-screen text:** "Tryll" then "Is the hit the customer?"
 
 ### 0:15 – 0:45 · The engine and its numbers (30 s)
 
@@ -56,7 +56,7 @@ The cases used, both invented:
 **Click:** queue filter *Cleared* → *Confirmed* → *Review*.
 
 **Voice-over (≈75 words):**
-> Our engine follows the bank's procedure literally. It works out who the customer really is across five systems, merges duplicate records, and trusts a verified identity check over what was typed in. It clears a hit only on a contradiction the procedure names, confirms only on agreement, and otherwise asks a human. On the practice set it gets fifty out of fifty with zero unsafe clearances, runs the whole set in under forty seconds, and gives the same answer every time.
+> Tryll follows the bank's procedure literally. It works out who the customer really is across five systems, merges duplicate records, and trusts a verified identity check over what was typed in. It clears a hit only on a contradiction the procedure names, confirms only on agreement, and otherwise asks a human. On the practice set it gets fifty out of fifty with zero unsafe clearances, runs the whole set in under forty seconds, and gives the same answer every time.
 
 ### 0:45 – 1:35 · One human review, with the AI court and four-eyes (50 s)
 
@@ -88,10 +88,10 @@ The cases used, both invented:
 
 **Shot:** card with the project name and the team.
 
-**Card:** "Same person or not? · deterministic SOP engine · human-in-the-loop review" and the four names.
+**Card:** "Tryll · same person or not? · deterministic SOP engine · human-in-the-loop review" and the four names.
 
 **Voice-over (≈25 words):**
-> Rules you can audit, AI that can only make it safer, and a human who signs every call. That is how we would screen customers.
+> Rules you can audit, AI that can only make it safer, and a human who signs every call. That is Tryll.
 
 ## Checks before uploading
 
