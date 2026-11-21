@@ -5,7 +5,7 @@ import { StatusDot } from "@/components/base/badges/status-dot";
 type StatusDotColor = "green" | "yellow" | "indigo";
 import { Avatar } from "@/components/base/avatar/avatar";
 import type { CaseRow } from "./api";
-import { BUCKET, SYS, useApp } from "./ui";
+import { BUCKET, SYS, plain, useApp } from "./ui";
 
 const DOT: Record<string, StatusDotColor> = {
   needs_decision: "yellow", returned: "yellow", pending_approval: "indigo", proposed_match: "indigo",
@@ -20,8 +20,8 @@ export default function QueueTable({ rows, onOpen }: { rows: CaseRow[]; onOpen: 
         <TableHeader>
           <TableColumn id="name" isRowHeader className="w-[38%]">Watchlist hit</TableColumn>
           <TableColumn id="listing" className="w-[16%]">Listing</TableColumn>
-          <TableColumn id="engine" className="w-[16%]">Engine says</TableColumn>
-          <TableColumn id="status" className="w-[30%]">Status</TableColumn>
+          <TableColumn id="engine" className="w-[20%]">Engine says</TableColumn>
+          <TableColumn id="status" className="w-[26%]">Status</TableColumn>
         </TableHeader>
         <TableBody items={rows.slice(0, 300)} renderEmptyState={() => <p className="py-12 text-center text-body-regular text-text-tertiary">Nothing in this queue.</p>}>
           {(r) => (
@@ -36,7 +36,12 @@ export default function QueueTable({ rows, onOpen }: { rows: CaseRow[]; onOpen: 
                 </div>
               </TableCell>
               <TableCell><Chip variant="subtle" color="gray">{String(r.listing || "Watchlist").split(";")[0]}</Chip></TableCell>
-              <TableCell>{blind && !r.human ? <span className="text-caption-1-regular text-text-tertiary">Hidden</span> : <Chip variant="bold" color={SYS[r.system.decision].color}>{SYS[r.system.decision].label}</Chip>}</TableCell>
+              <TableCell>{blind && !r.human ? <span className="text-caption-1-regular text-text-tertiary">Hidden</span> : (
+                <div className="flex flex-col items-start gap-1">
+                  <Chip variant="bold" color={SYS[r.system.decision].color}>{SYS[r.system.decision].label}</Chip>
+                  <span className="text-caption-1-regular text-text-tertiary">{plain(r.system.reason_code)}</span>
+                </div>
+              )}</TableCell>
               <TableCell>
                 <span className="flex items-center gap-2 text-body-2-medium text-text-secondary">
                   <StatusDot color={DOT[r.bucket]} />{BUCKET[r.bucket].label}
