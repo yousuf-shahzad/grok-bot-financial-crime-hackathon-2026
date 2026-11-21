@@ -80,13 +80,20 @@ _AGE_RES = (
     re.compile(r"\b(\d{2,3})\s+years?\s+old\b", re.I),
     re.compile(r"(?:,|\()\s*(\d{2,3})\s*(?:,|\))"),
 )
+# "then 45" / "then a 45-year-old" points at the previous sentence's one date.
+_THEN_AGE = re.compile(
+    r"\bthen\s+(?:a\s+)?(\d{2,3})(?:\s*-\s*year\s*-\s*old|\s+years?\s+old)?\b", re.I)
 _BIRTH_RE = re.compile(
-    r"\b(?:was\s+born\s+on|born(?:\s+on|\s+in)?|date\s+of\s+birth|birth\s+date|d\.?o\.?b\.?)"
+    r"(?i)\b(?:was\s+born\s+on|born(?:\s+on|\s+in)?|b\.|date\s+of\s+birth|birth\s+date|d\.?o\.?b\.?)"
     r"\s*[:\-]?\s*([^.;\n]{1,60})",
-    re.I)
+)
 _SENT_DATE = re.compile(
-    r"(?i)\b(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4}|"
+    r"(?i)\b(\d{4}-\d{2}-\d{2}|(?<![\d-])\d{4}-\d{2}(?!-\d)|\d{1,2}/\d{1,2}/\d{4}|"
     r"\d{1,2}\s+[A-Za-z]+\s+\d{4}|[A-Za-z]+\s+\d{1,2},\s*\d{4}|[A-Za-z]+\s+\d{4})\b")
+_DEATH_CUE = re.compile(
+    r"(?i)\b(?:died|passed\s+away|deceased)(?:\s+(?:on|in|since))?\s+([^.;\n]{1,48})"
+)
+_ALIVE_STATUS = {"alive", "living"}
 
 
 def extract(hit: dict, data) -> HitProfile:
@@ -107,7 +114,7 @@ def extract(hit: dict, data) -> HitProfile:
         births = _births(row, data, countries, listing, hit_id)
         incorporated = None
     earliest = _earliest_report(notes, hit_id)
-    deceased, death_note = _deceased(row, hit_id)
+    deceased, death_note = _deceased(row, hit_id, company)
     missing = _missing(names, births, countries, earliest, incorporated, company, death_note)
     return HitProfile(
         hit_id=hit_id, alert_id=alert_id, entity_type=entity_type,
@@ -386,20 +393,26 @@ def _births_from_text(text, source):
     def overlaps(start, end):
         return any(not (end <= left or start >= right) for left, right in occupied)
 
+    previous_dates = []
     for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
         dates = _sentence_dates(sentence)
         for match in _age_matches(sentence):
             if overlaps(match[0], match[1]):
                 continue
-            when = _nearest_date(match[0], match[1], dates)
-            if when is None or when.year is None or when.month is None:
+            _add_age(claims, occupied, match, _nearest_date(match[0], match[1], dates), source)
+        # "then 45" / "then a 45-year-old". Same sentence if it has a date;
+        # otherwise the previous sentence, and only when that sentence has one date.
+        for match in _then_ages(sentence):
+            if overlaps(match[0], match[1]):
                 continue
-            years = tuple(sorted((when.year - match[2] - 1, when.year - match[2])))
-            if years[0] < 1000:
-                continue
-            # The reference month is not a birth month. SPEC: two possible years.
-            claims.append(BirthClaim(years=years, month=None, day=None, source=source))
-            occupied.append((match[0], match[1]))
+            if dates:
+                when = _nearest_date(match[0], match[1], dates)
+            elif len(previous_dates) == 1:
+                when = previous_dates[0][2]
+            else:
+                when = None
+            _add_age(claims, occupied, match, when, source)
+        previous_dates = dates
     for match in _BIRTH_RE.finditer(text):
         if overlaps(match.start(), match.end()):
             continue
@@ -409,6 +422,26 @@ def _births_from_text(text, source):
         claims.append(BirthClaim(years=(when.year,), month=when.month, day=when.day, source=source))
         occupied.append((match.start(), match.end()))
     return _dedupe_claims(claims)
+
+
+def _add_age(claims, occupied, match, when, source):
+    if when is None or when.year is None or when.month is None:
+        return
+    years = tuple(sorted((when.year - match[2] - 1, when.year - match[2])))
+    if years[0] < 1000:
+        return
+    # The reference month is not a birth month. SPEC: two possible years.
+    claims.append(BirthClaim(years=years, month=None, day=None, source=source))
+    occupied.append((match[0], match[1]))
+
+
+def _then_ages(sentence):
+    found = []
+    for match in _THEN_AGE.finditer(sentence):
+        age = int(match.group(1))
+        if 10 <= age <= 130:
+            found.append((match.start(), match.end(), age))
+    return found
 
 
 def _age_matches(sentence):
@@ -633,17 +666,53 @@ def _pick_date(dates, prefer_late):
     return keep[-1] if prefer_late else keep[0]
 
 
-def _deceased(row, hit_id):
+def _deceased(row, hit_id, company=False):
+    """Death date for HitProfile.deceased. Judge clears only when this PartialDate
+    is certainly before screened_at. No date means no DECEASED clear.
+    Alive/living beats a death phrase in the prose (it may be someone else).
+    Companies are not given a death date from prose: a person mentioned in the
+    profile is not the company.
+    """
+    status = str(row.get("life_status") or "").strip().casefold()
     raw = row.get("deceased_date")
     parsed = _parse_date(raw) if str(raw or "").strip() else None
+    if status in _ALIVE_STATUS:
+        return None, None
     if parsed is not None and parsed.year is not None:
         return Fact(value=parsed, source=hit_id, kind="deceased"), None
-    status = str(row.get("life_status") or "").strip().casefold()
+    from_text = None if company else _death_from_text(row.get("profile_notes"))
+    if from_text is not None:
+        return Fact(value=from_text, source=hit_id, kind="deceased"), None
     if str(raw or "").strip():
         return None, "no usable date of death"
-    if status in _DEATH_WORDS:
+    if status in _DEATH_WORDS or _death_words_without_date(row.get("profile_notes")):
         return None, "deceased but no date of death"
     return None, None
+
+
+def _death_from_text(text):
+    if not text:
+        return None
+    found = []
+    seen = []
+    for match in _DEATH_CUE.finditer(str(text)):
+        parsed = _find_date(match.group(1))
+        if parsed is None or parsed.year is None:
+            continue
+        key = (parsed.year, parsed.month, parsed.day)
+        if key in seen:
+            continue
+        seen.append(key)
+        found.append(parsed)
+    if len(found) == 1:
+        return found[0]
+    return None
+
+
+def _death_words_without_date(text):
+    if not text:
+        return False
+    return re.search(r"(?i)\b(?:died|passed\s+away|deceased|the\s+late)\b", str(text)) is not None
 
 
 def _missing(names, births, countries, earliest, incorporated, company, death_note):

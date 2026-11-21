@@ -67,7 +67,12 @@ _SUCCESS = re.compile(
     r"|\bsuccessful(?:\s+check)?\b")
 _FAILURE = re.compile(r"(?i)\b(?:rejected|failed|expired|could not|couldn't|unable to)\b")
 _NEGATED = re.compile(r"(?i)\b(?:not|never|no|un)\b(?:\s+\w+){0,2}\s*$")
-_DOB_KW = re.compile(r"(?i)\b(?:d\.?o\.?b\.?|date of birth|birth date|born)\b")
+_DOB_KW = re.compile(
+    r"(?i)(?:\bb\.(?!\w)|\b(?:d\.?o\.?b\.?|date of birth|birth date|born)\b)")
+_AMBIGUOUS_BIRTH = re.compile(
+    r"(?i)\b(?:born|b\.|d\.?o\.?b\.?|date of birth|birth date)\b\s*(?:in\s+)?"
+    r"\d{4}\s*(?:or|/|and)\s*\d{4}")
+_CHECKED = re.compile(r"(?i)\b(?:was|were)\s+checked\b")
 _CHECK_KW = re.compile(r"(?i)\b(?:as of|on)\b")
 _DOC = re.compile(
     r"(?i)\b(?:passports?|driving licences?|driving licenses?|national ids?|"
@@ -76,9 +81,11 @@ _RESIDENCE = re.compile(
     r"(?i)live|lived|living|resid|home|based|settled|relocat|work|employ|job|position")
 _DATE_RES = (
     re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
+    re.compile(r"\b\d{4}-\d{2}(?!-\d)\b"),
     re.compile(r"\b\d{1,2}/\d{1,2}/\d{4}\b"),
     re.compile(r"\b\d{1,2}\s+[A-Za-z]+\s+\d{4}\b"),
     re.compile(r"\b[A-Za-z]+\s+\d{1,2},\s*\d{4}\b"),
+    re.compile(r"\b[A-Za-z]+\s+\d{4}\b"),
 )
 _CUES = (
     re.compile(r"(?i)\boriginating from\s+"),
@@ -183,6 +190,23 @@ def _dates(text):
                 continue
             found.append((match.start(), match.end(), parsed))
             occupied.append((match.start(), match.end()))
+    # A bare year is a birth date only when it is the single year glued to a
+    # birth cue ("born in 1970", "b. 1970"). "1970 or 1971" is a guess.
+    for cue in _DOB_KW.finditer(text):
+        window = text[cue.end():cue.end() + 20]
+        years = re.match(
+            r"\s*(?:in\s+)?(\d{4})\b(?:\s*(?:or|/|and)\s*(\d{4})\b)?", window)
+        if years is None or years.group(2):
+            continue
+        start = cue.end() + years.start(1)
+        end = cue.end() + years.end(1)
+        if overlaps(start, end):
+            continue
+        parsed = _parse_date(years.group(1))
+        if parsed is None or parsed.year is None:
+            continue
+        found.append((start, end, parsed))
+        occupied.append((start, end))
     return found
 
 
@@ -209,8 +233,9 @@ def _nearest(candidates, anchors, limit):
 
 def _pick_dates(text, found):
     dob = None
+    ambiguous = _AMBIGUOUS_BIRTH.search(text) is not None
     keywords = [(match.start(), match.end()) for match in _DOB_KW.finditer(text)]
-    if keywords:
+    if keywords and not ambiguous:
         dob = _nearest(found, keywords, 80)
     if dob is None:
         paren = []
@@ -223,7 +248,7 @@ def _pick_dates(text, found):
     rest = [item for item in found if dob is None or item[0] != dob[0]]
     checks = [(match.start(), match.end()) for match in _CHECK_KW.finditer(text)]
     check = _nearest(rest, checks, 40) if checks and rest else None
-    if dob is None and check is not None:
+    if dob is None and check is not None and not ambiguous:
         others = [item for item in found if item[0] != check[0]]
         if len(others) == 1:
             dob = others[0]
@@ -271,6 +296,14 @@ def _document_country(text):
             add(_span_country(fragment))
     for match in _DOC.finditer(text):
         words = _WORD.findall(text[max(0, match.start() - 48):match.start()])
+        for word in reversed(words[-3:]):
+            head = word.split("-")[0]
+            if not _country_token(head):
+                continue
+            name = _normalise_country(head)
+            if name:
+                add(name)
+                break
         for size in (3, 2, 1):
             if len(words) < size:
                 continue
@@ -315,9 +348,16 @@ def _countries_in(text):
     return found
 
 
+def _success(text):
+    if _flag(_SUCCESS, text):
+        return True
+    # "A passport ... was checked" is a completed check. "Checked the post" is not.
+    return bool(_CHECKED.search(text) and _DOC.search(text) and not _flag(_FAILURE, text))
+
+
 def _parse_kyc(text, created, source):
     failure = _flag(_FAILURE, text)
-    success = _flag(_SUCCESS, text)
+    success = _success(text)
     if failure or not success:
         return NoteFacts(rejected=failure, date=created, source=source)
     name = _name(text)
