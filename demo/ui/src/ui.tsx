@@ -25,7 +25,7 @@ export const BUCKET: Record<Bucket, { label: string; color: ChipColor }> = {
   proposed_clear: { label: "Proposed clear", color: "lime" }, escalated: { label: "Escalated", color: "orange" }, done: { label: "Closed", color: "gray" },
 };
 
-export const plain = (s?: string | null) => (s || "").toLowerCase().replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()).replace(/(dob|sop|kyc|pep|rfi|id)/gi, (m) => m.toUpperCase());
+export const plain = (s?: string | null) => (s || "").toLowerCase().replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()).replace(/\b(dob|sop|kyc|pep|rfi|id)\b/gi, (m) => m.toUpperCase());
 
 export function StatusChip({ color, children }: { color: ChipColor; children: ReactNode }) {
   return <Chip color={color} variant="subtle">{children}</Chip>;
