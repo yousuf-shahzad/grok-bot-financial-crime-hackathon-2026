@@ -142,14 +142,28 @@ Each item names the SOP principle it implements ([SPEC.md](SPEC.md)). If the spe
 
 ### A. Loader + customer resolver (`@yousuf-shahzad`)
 
-**load.py**: `load(folder) -> Data`. Read every `*.jsonl`. Accept list fields as real lists **or** `"a; b"` strings (helper `as_list(v)`). Build:
-- `customers[record_id]`, `customers_by_email[lower(email)]`, `customers_by_phone[digits(phone)]`
-- `accounts_by_id[account_id] -> [rows]` (joint accounts have several rows: 52 in dev), `accounts_by_login[login_handle]`, `accounts_by_customer[customer_id]`
-- `onboarding_by_customer[customer_id] -> [rows]` (account_id, kyc_applicant_id)
-- `kyc_by_applicant[applicant_id] -> [checks]`, `kyc_by_docnum[document_number] -> [checks]` (approved only)
-- `notes_by_email[lower(email)] -> [notes]`
-- `search_by_query[query] -> [results]`
-- name blocking index for the no-link search: `customers_by_name_part[part] -> {record_ids}` over full, preferred and login names, with parts normalised by C's `names.parts()` and expanded by variant group. Add a one-edit deletion index for fuzzy parts if time allows.
+**load.py** (split: built by **Yousuf's Grok**; `resolve.py` by **Yousuf's Claude**): `load(folder) -> Data`, plus helpers `as_list(v)` and `digits(s)`. Read every `*.jsonl` in the folder (missing file → empty). Rows stay **raw dicts** exactly as read. Accept list fields as real lists **or** `"a; b"` strings via `as_list(v)` (`None` → `[]`, list → list of non-empty stripped strings, string → split on `;`). Every list in every index below is **sorted** (by the row's own ID) so iteration is deterministic. Exact contract, `resolve.py` codes against it:
+
+```python
+class Data:
+    folder: str
+    customers: Dict[str, dict]                  # record_id -> row
+    customers_by_email: Dict[str, List[str]]    # email.strip().lower() -> record_ids
+    customers_by_phone: Dict[str, List[str]]    # digits(phone) -> record_ids (customer rows only)
+    accounts_by_id: Dict[str, List[dict]]       # account_id -> rows (joint accounts: several rows)
+    accounts_by_login: Dict[str, List[dict]]    # login_handle.strip().lower() -> rows
+    accounts_by_customer: Dict[str, List[dict]] # customer_id -> rows
+    onboarding_by_customer: Dict[str, List[dict]]  # customer_id -> rows (account_id, kyc_applicant_id, onboarded_at)
+    kyc_by_applicant: Dict[str, List[dict]]     # applicant_id -> check rows (all results)
+    kyc_by_docnum: Dict[str, List[dict]]        # document_number.strip().upper() -> APPROVED check rows only
+    notes_by_email: Dict[str, List[dict]]       # requester_email.strip().lower() -> note rows
+    search_by_query: Dict[str, List[dict]]      # query.strip().lower() -> result rows
+    hits: Dict[str, dict]                       # hit_id -> row
+    alerts: Dict[str, dict]                     # alert_id -> row
+    name_variants: Optional[dict]               # parsed name_variants.json if present in the folder, else None
+```
+
+`digits(s)` keeps only `0-9` (so `+44 7700 900123` → `447700900123`). Must load the dev set in well under a minute. The **name blocking index for the no-link search is built inside `resolve.py`**, not here, because it needs C's name normalisation.
 
 **resolve.py**: `resolve(alert, data) -> Resolution`. Principles 2, 3, 4.
 1. **Linked alerts:** `account_ref` → all holders on that account; `login_handle` → accounts → customer; `email` → customers with that email. If the link gives several records, keep those that **fit** the screened details (step 2's test). If none fit, keep all of them (they become several people → the judge decides each).
