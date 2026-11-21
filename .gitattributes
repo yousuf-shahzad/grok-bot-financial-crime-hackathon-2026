@@ -1,0 +1,6 @@
+# Keep scripts LF on every OS. A CRLF checkout on Windows breaks `#!/usr/bin/env bash`.
+* text=auto
+*.sh text eol=lf
+tools/board text eol=lf
+.claude/hooks/* text eol=lf
+*.jpg binary
