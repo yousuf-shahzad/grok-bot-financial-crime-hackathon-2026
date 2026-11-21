@@ -67,12 +67,12 @@ Troubleshooting:
 **Data and secrets**
 1. **Never commit data or keys.** `data/`, `dev/`, `*.xlsx`, `.env*` are gitignored: do not force-add them (`git add -f`). The dataset is for event participants only.
 2. **Never paste dataset records** (customers, hits, notes, KYC rows, search snippets) into the board, issues, PRs, commit messages or any public place. Cite record IDs (`CUS-...`, `H-...`, `NOTE-...`, `KYC-...`) instead.
-3. API keys come from the environment (`OPENROUTER_API_KEY`). Copy `.env.example` to `.env` locally. Never print, log, commit or post a key.
+3. API keys come from the environment (`OPENROUTER_API_KEY` and/or `XAI_API_KEY`). Copy `.env.example` to `.env` locally. Never print, log, commit or post a key.
 
 **What `system/` may do** (full list in [docs/track2/SCOPE.md](docs/track2/SCOPE.md))
 4. Entry point `system/run <data folder> <output file>`. It must work when started from inside `system/` with full paths.
 5. **Python 3 or Node.js standard library only, or shell.** No third-party packages. `system/` must not import anything from `tools/`, `demo/` or `docs/`.
-6. A language model **only via OpenRouter**. No other network calls at run time. A full run must finish **under 30 minutes**.
+6. A language model **only via OpenRouter or the xAI (Grok) API** (the lead confirmed with the organisers that the Grok API is allowed). The only LLM use is `engine/crossexam.py`, which can turn a clearance into REVIEW and never the reverse; with no key, decisions are exactly the rules'. No other network calls at run time. A full run must finish **under 30 minutes**.
 7. Reads only the data folder it is given and writes only the output file.
 8. **Deterministic:** temperature 0, fixed seeds, sorted iteration, stable tie-breaks, and cache model calls by hash of their input. Five runs must give identical decisions and reason codes.
 9. **Nothing dev-specific hardcoded** (IDs, names, amounts, snippets, wording). The unseen set has new customers, new hits and reworded text. Tune on the SOP's principles, not on the dev files.
