@@ -37,20 +37,43 @@ hitfacts = _optional("hitfacts")
 judge = _optional("judge")
 
 
-def read_jsonl(path: str) -> list:
-    rows = []
-    if not os.path.exists(path):
-        return rows
-    with open(path, encoding="utf-8") as f:
-        for n, line in enumerate(f, 1):
+def read_table(folder: str, name: str) -> list:
+    """Rows of <name>.jsonl (or <name>.json): JSON Lines, or one JSON array / {key: [rows]} object.
+    Tolerates a UTF-8 BOM, blank and malformed lines. Fallback only: load.py is the main reader."""
+    for ext in (".jsonl", ".json"):
+        path = os.path.join(folder, name + ext)
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8-sig", errors="replace") as f:
+            text = f.read()
+        stripped = text.lstrip()
+        if stripped.startswith(("[", "{")):
+            try:
+                obj = json.loads(stripped)  # whole-file JSON; multi-line JSONL fails here and is read below
+            except ValueError:
+                obj = None
+            if isinstance(obj, dict):
+                if name.rstrip("s") + "_id" in obj:   # a one-row JSONL file
+                    obj = [obj]
+                else:                                 # a {"hits": [...]} style wrapper
+                    obj = next((v for k, v in sorted(obj.items()) if isinstance(v, list)), [])
+            if isinstance(obj, list):
+                return [r for r in obj if isinstance(r, dict)]
+        rows = []
+        for n, line in enumerate(text.splitlines(), 1):
             line = line.strip()
             if not line:
                 continue
             try:
-                rows.append(json.loads(line))
+                r = json.loads(line)
             except ValueError:
-                log("main: %s line %d is not valid JSON, skipped" % (os.path.basename(path), n))
-    return rows
+                log("main: %s line %d is not valid JSON, skipped" % (name + ext, n))
+                continue
+            if isinstance(r, dict):
+                rows.append(r)
+        return rows
+    log("main: no %s.jsonl or %s.json in the data folder" % (name, name))
+    return []
 
 
 def fallback_decision(hit_id: str, alert_id: str, why: str = "") -> Decision:
@@ -80,15 +103,6 @@ def main(argv: list) -> int:
         return 2
     folder, out_path = os.path.abspath(argv[1]), os.path.abspath(argv[2])
 
-    alerts = {}
-    for a in read_jsonl(os.path.join(folder, "alerts.jsonl")):
-        aid = a.get("alert_id")
-        if aid:
-            alerts[str(aid)] = a
-    hits = [h for h in read_jsonl(os.path.join(folder, "hits.jsonl")) if h.get("hit_id")]
-    hits.sort(key=lambda h: (str(h.get("alert_id") or ""), str(h.get("hit_id"))))
-    log("main: %d alerts, %d hits" % (len(alerts), len(hits)))
-
     data = None
     if load is not None:
         try:
@@ -96,6 +110,22 @@ def main(argv: list) -> int:
         except Exception:
             log("main: load failed, every hit falls back to REVIEW\n" + traceback.format_exc())
             data = None
+
+    # alerts and hits: from the loader when it has them (it handles every file shape), else our own reader
+    alert_rows = list((getattr(data, "alerts", None) or {}).values()) if data is not None else []
+    hit_rows = list((getattr(data, "hits", None) or {}).values()) if data is not None else []
+    if not alert_rows:
+        alert_rows = read_table(folder, "alerts")
+    if not hit_rows:
+        hit_rows = read_table(folder, "hits")
+    alerts = {}
+    for a in alert_rows:
+        aid = a.get("alert_id")
+        if aid not in (None, ""):
+            alerts[str(aid)] = a
+    hits = [h for h in hit_rows if h.get("hit_id") not in (None, "")]
+    hits.sort(key=lambda h: (str(h.get("alert_id") or ""), str(h.get("hit_id"))))
+    log("main: %d alerts, %d hits" % (len(alerts), len(hits)))
 
     # install name_variants.json (if the loader found one) so names.py uses it over its built-in table
     if data is not None:
