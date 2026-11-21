@@ -35,6 +35,13 @@ try:  # optional: the Grok cross-examiner (system/engine/crossexam.py), off with
     from engine import crossexam, llm  # noqa: E402
 except Exception:  # pragma: no cover
     crossexam = llm = None
+sys.path.insert(0, HERE)
+import review_api  # noqa: E402
+try:  # optional: the LLM court (prosecution / defence / adjudicator), called only on a reviewer's request
+    import court_llm  # noqa: E402
+except Exception:
+    court_llm = None
+STORE = None
 from engine.model import BirthClaim, Fact, PartialDate  # noqa: E402
 
 COST = {("DIFFERENT_ENTITY", "DIFFERENT_ENTITY"): 0, ("DIFFERENT_ENTITY", "SAME_ENTITY"): 3,
@@ -237,16 +244,69 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def _static(self, path):
+        """The built React app (demo/ui/dist) if present, else the older single-file page."""
+        dist = os.path.join(HERE, "ui", "dist")
+        if not os.path.isdir(dist):
+            with open(os.path.join(HERE, "index.html"), "rb") as f:
+                return self._send(200, f.read(), "text/html; charset=utf-8")
+        rel = path.lstrip("/") or "index.html"
+        full = os.path.normpath(os.path.join(dist, rel))
+        if not full.startswith(os.path.normpath(dist)) or not os.path.isfile(full):
+            full = os.path.join(dist, "index.html")  # client-side routes
+        ctype = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+                 ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
+                 ".woff2": "font/woff2", ".json": "application/json"}.get(os.path.splitext(full)[1], "application/octet-stream")
+        with open(full, "rb") as f:
+            return self._send(200, f.read(), ctype)
+
+    def _body(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > 1_000_000:
+            raise ValueError("request too large")
+        return json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        if not STATE.ready:
+            return self._send(503, {"error": STATE.status})
+        try:
+            body = self._body()
+        except Exception:
+            return self._send(400, {"error": "body must be JSON"})
+        if u.path == "/api/review":
+            return self._send(*post_review(body))
+        if u.path == "/api/court":
+            return self._send(*post_court(body))
+        return self._send(404, {"error": "not found"})
+
     def do_GET(self):
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
-        if u.path in ("/", "/index.html"):
-            with open(os.path.join(HERE, "index.html"), "rb") as f:
-                return self._send(200, f.read(), "text/html; charset=utf-8")
+        if not u.path.startswith("/api/"):
+            return self._static(u.path)
         if u.path == "/api/status":
             return self._send(200, {"ready": STATE.ready, "status": STATE.status})
         if not STATE.ready:
             return self._send(503, {"error": STATE.status})
+        if u.path == "/api/cases":
+            return self._send(200, review_api.case_rows(STATE, STORE, q))
+        if u.path.startswith("/api/case/"):
+            return self._send(*case_detail(u.path.rsplit("/", 1)[-1]))
+        if u.path.startswith("/api/reviews/"):
+            return self._send(200, {"history": STORE.history(u.path.rsplit("/", 1)[-1])})
+        if u.path == "/api/reviewed_decisions.jsonl":
+            return self._send(200, review_api.export_lines(STATE, STORE).encode("utf-8"), "application/x-ndjson; charset=utf-8")
+        if u.path == "/api/mi":
+            return self._send(200, review_api.mi(STATE, STORE))
+        if u.path.startswith("/api/report/"):
+            hid = u.path.rsplit("/", 1)[-1].replace(".md", "")
+            code, det = case_detail(hid)
+            if code != 200:
+                return self._send(code, det)
+            return self._send(200, review_api.case_report(STATE, STORE, hid, det).encode("utf-8"), "text/markdown; charset=utf-8")
+        if u.path == "/api/codes":
+            return self._send(200, {k: list(v) for k, v in review_api.CODES.items()})
         if u.path == "/api/summary":
             return self._send(200, summary())
         if u.path == "/api/hits":
@@ -335,13 +395,93 @@ def hit_detail(hid):
     }
 
 
+def case_detail(hid):
+    code, detail = hit_detail(hid)
+    if code != 200:
+        return code, detail
+    detail["comparison"] = review_api.comparison(detail)
+    detail["records"] = review_api.selectable_records(STATE, hid, detail)
+    detail["history"] = STORE.history(hid)
+    detail["workflow"] = review_api.workflow(detail["decision"]["decision"], detail["history"])["bucket"]
+    detail["qa_sample"] = review_api.qa_sampled(hid, detail["decision"]["decision"])
+    detail["court_available"] = court_llm is not None and llm is not None and llm.available()
+    return 200, detail
+
+
+def post_review(body):
+    hid = str(body.get("hit_id") or "")
+    d = STATE.decisions.get(hid)
+    if not d:
+        return 404, {"error": "unknown hit " + hid}
+    action = str(body.get("action") or "DECIDE").upper()
+    reviewer = str(body.get("reviewer") or "").strip()[:80]
+    role = str(body.get("role") or "analyst").strip().lower()[:20]
+    rationale = str(body.get("rationale") or "").strip()[:4000]
+    if not reviewer:
+        return 400, {"error": "sign in with a reviewer name first"}
+    if len(rationale) < 10:
+        return 400, {"error": "write a rationale of at least 10 characters"}
+    hist = STORE.history(hid)
+    wf = review_api.workflow(d.decision, hist)
+    engine_version = "rules+%s" % (getattr(STATE, "llm", "rules only"))
+    if action == "DECIDE":
+        decision = str(body.get("decision") or "").upper()
+        if decision not in review_api.HUMAN:
+            return 400, {"error": "decision must be one of " + ", ".join(review_api.HUMAN)}
+        if wf["bucket"] in ("pending_approval", "done"):
+            return 409, {"error": "this case already has a decision %s; the checker must return it first" % wf["bucket"].replace("_", " ")}
+        code = str(body.get("reason_code") or "").upper()
+        if code not in review_api.CODES[decision]:
+            return 400, {"error": "%s needs a reason code from: %s" % (decision, ", ".join(review_api.CODES[decision]))}
+        allowed = {r["id"] for r in review_api.selectable_records(STATE, hid, hit_detail(hid)[1])}
+        rec_ids = [r for r in body.get("record_ids") or [] if r in allowed]
+        if decision in ("CLEAR", "CONFIRM") and not rec_ids:
+            return 400, {"error": "cite at least one record that supports the %s" % decision.lower()}
+        STORE.add(hid, d.alert_id, reviewer, role, "DECIDE", decision, code, rec_ids, rationale,
+                  d.decision, d.reason_code, body.get("court"), engine_version, getattr(STATE, "llm", ""))
+    elif action in ("APPROVE", "RETURN"):
+        if wf["bucket"] != "pending_approval":
+            return 409, {"error": "nothing is waiting for approval on this case"}
+        if wf["maker"]["reviewer"].strip().lower() == reviewer.lower():
+            return 403, {"error": "four-eyes rule: the checker must be a different person from %s" % wf["maker"]["reviewer"]}
+        STORE.add(hid, d.alert_id, reviewer, role, action, None, None, [], rationale,
+                  d.decision, d.reason_code, None, engine_version, getattr(STATE, "llm", ""))
+    else:
+        return 400, {"error": "action must be DECIDE, APPROVE or RETURN"}
+    hist = STORE.history(hid)
+    return 200, {"ok": True, "history": hist, "workflow": review_api.workflow(d.decision, hist)["bucket"]}
+
+
+def post_court(body):
+    if court_llm is None:
+        return 501, {"error": "the LLM court module (demo/court_llm.py) is not installed yet"}
+    if llm is None or not llm.available():
+        return 503, {"error": "no LLM key configured (set XAI_API_KEY or OPENROUTER_API_KEY in .env)"}
+    hid = str(body.get("hit_id") or "")
+    role = str(body.get("role") or "")
+    if role not in ("prosecution", "defence", "adjudicator"):
+        return 400, {"error": "role must be prosecution, defence or adjudicator"}
+    code, detail = hit_detail(hid)
+    if code != 200:
+        return code, detail
+    allowed = {r["id"]: r for r in review_api.selectable_records(STATE, hid, detail)}
+    records = [{"id": rid, "kind": allowed[rid]["kind"], "text": allowed[rid]["text"]}
+               for rid in body.get("record_ids") or [] if rid in allowed]
+    try:
+        out = court_llm.argue(role, review_api.court_case(detail), records, body.get("prior"))
+    except Exception as e:  # never take the GUI down
+        return 502, {"error": "court call failed: %s" % type(e).__name__}
+    return 200, out
+
+
 def main(argv):
-    global STATE
+    global STATE, STORE
     if len(argv) < 2:
         raise SystemExit(__doc__)
     folder = os.path.abspath(argv[1])
     port = int(argv[argv.index("--port") + 1]) if "--port" in argv else 8765
     STATE = State(folder)
+    STORE = review_api.ReviewStore()
     if "--blindfold" in argv:
         # Demo only: switch off our note parser so the rules miss lived-in places and verified
         # dates of birth, then watch the Grok cross-examiner catch the clearances that go wrong.
