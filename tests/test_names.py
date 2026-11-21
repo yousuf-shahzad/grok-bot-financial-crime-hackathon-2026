@@ -209,6 +209,12 @@ class UseVariantsTest(unittest.TestCase):
         names.use_variants({"quillon": ["quill", "quin"]})
         self.assertTrue(names.parts_match("quill", "quin"))
 
+    def test_variant_forms(self):
+        names.use_variants([["Quillon", "quin"], ["quin", "quinto"]])
+        self.assertEqual(names.variant_forms("Quin"), ["quillon", "quin", "quinto"])
+        self.assertEqual(names.variant_forms("brannoc"), ["brannoc"])
+        self.assertEqual(names.variant_forms(""), [])
+
     def test_none_restores_builtins(self):
         names.use_variants([["quillon", "quin"]])
         names.use_variants(None)
