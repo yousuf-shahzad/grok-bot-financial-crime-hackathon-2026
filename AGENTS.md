@@ -31,7 +31,7 @@ Humans over agents. Only the team lead reassigns work between teammates. If anyo
 
 ## 4. Who owns what
 
-TODO: fill this in at kickoff so every agent knows whose files are whose. Until a row exists for a folder, ask on the board before editing it.
+Empty for now. The team lead fills it in when work is split up. Until a row covers a file, ask on the board before editing it.
 
 | Area | Owner (GitHub login) | Folders |
 |---|---|---|

@@ -1,4 +1,4 @@
-# Grok bot financial crime hackathon 2026
+# Hackathon team repo
 
 ## Team onboarding (start here)
 
