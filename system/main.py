@@ -36,6 +36,35 @@ resolve = _optional("resolve")
 hitfacts = _optional("hitfacts")
 judge = _optional("judge")
 
+# Optional LLM cross-examiner (Yousuf's Claude). Any import problem means rules only, never a crash.
+crossexam = None
+if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine", "crossexam.py")):
+    try:
+        from engine import crossexam  # type: ignore
+    except Exception as _e:  # noqa: BLE001
+        crossexam = None
+        log("main: crossexam unavailable (%s: %s), rules only" % (type(_e).__name__, _e))
+
+REVIEW_CODES = ("INSUFFICIENT_DATA", "AMBIGUOUS_CUSTOMER_RECORD")
+
+
+def cross_examine(d: Decision, profile, res, alert: dict, data) -> Decision:
+    """Let the cross-examiner look at a clearance. It may only turn DIFFERENT_ENTITY into REVIEW:
+    anything else it returns (or any error) keeps the rules' decision unchanged."""
+    if crossexam is None or d.decision != "DIFFERENT_ENTITY":
+        return d
+    try:
+        new = crossexam.review(d, profile, res, alert, data)
+    except Exception:  # noqa: BLE001
+        log("main: crossexam failed on %s, keeping the rules' decision\n%s" % (d.hit_id, traceback.format_exc()))
+        return d
+    if isinstance(new, Decision) and new.decision == "REVIEW" and new.reason_code in REVIEW_CODES \
+            and new.hit_id == d.hit_id and new.alert_id == d.alert_id:
+        return new
+    if new is not None and new is not d:
+        log("main: crossexam returned something other than a REVIEW for %s, ignored" % d.hit_id)
+    return d
+
 
 def read_table(folder: str, name: str) -> list:
     """Rows of <name>.jsonl (or <name>.json): JSON Lines, or one JSON array / {key: [rows]} object.
@@ -155,6 +184,7 @@ def main(argv: list) -> int:
                                      entity_type=str(hit.get("entity_type") or ""))
             if judge is not None:
                 d = judge.decide(profile, res, alert)
+                d = cross_examine(d, profile, res, alert, data)
             else:
                 d = fallback_decision(hit_id, alert_id)
         except Exception:
