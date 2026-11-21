@@ -245,7 +245,12 @@ def resolve(det: Decision, llm_view: Optional[dict], case: dict) -> tuple:
     """The lead's single-hit contract: (final Decision, trace). Makes the screening call only on a
     disagreement; any screener failure resolves to REVIEW (never a crash, never a clearance)."""
     screen = None
-    if llm_view is not None and llm_view.get("decision") != det.decision:
+    # resolve_one already keeps the rules line when the view is missing or invalid. Do not spend a
+    # screener call on that view: it is not a second opinion.
+    decision = llm_view.get("decision") if isinstance(llm_view, dict) else None
+    code = llm_view.get("reason_code") if isinstance(llm_view, dict) else None
+    usable = decision in (DIFF, SAME, REVIEW) and code in (llm_judge.CODES.get(decision) or [])
+    if usable and decision != det.decision:
         try:
             screen = _screen(case, det, llm_view)
         except Exception:  # noqa: BLE001

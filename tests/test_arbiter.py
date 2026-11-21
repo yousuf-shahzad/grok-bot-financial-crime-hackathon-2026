@@ -282,9 +282,12 @@ class ContractGaps(unittest.TestCase):
         self._stub({"error_in": "deterministic", "significant_missed_facts": [], "explanation": "Take the review."})
         d = det()
         for bad in (view(SAME, "DOB_MISMATCH"), {"decision": SAME, "compared": [], "evidence_ids": []}):
-            final, tr = arbiter.resolve(d, bad, self.case("CUS-T1"))
+            self.calls.clear()
+            final, tr = arbiter.resolve(d, bad, self.case("CUS-T1", "NOTE-T9"))
             self.assertIs(final, d)
             self.assertEqual(tr["path"], "llm_unavailable")
+            self.assertEqual(self.calls, [])
+            self.assertEqual(final.evidence, ["CUS-T1"])
 
     def test_screen_failed_flag_reviews(self):
         final, path = arbiter.resolve_one(det(), view(SAME, "NAME_DOB_MATCH"), screen("llm"), screen_failed=True)
