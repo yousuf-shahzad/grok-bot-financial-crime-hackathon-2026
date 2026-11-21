@@ -85,6 +85,9 @@ function Stats({ s }) {
     ${p.n ? html`<div class="stat py-2 px-4"><div class="stat-title text-xs">Practice labels</div>
       <div class=${"stat-value text-xl " + (p.unsafe ? "text-error" : "text-success")}>${p.right}/${p.n}</div>
       <div class="stat-desc">score ${p.score}% · unsafe ${p.unsafe}</div></div>` : null}
+    <div class="stat py-2 px-4"><div class="stat-title text-xs">Grok cross-examiner</div>
+      <div class="stat-value text-base mono max-w-[14rem] truncate" title=${s.llm || "rules only"}>${s.llm || "rules only"}</div>
+      <div class="stat-desc">${s.crossexam_downgrades || 0} clearance${s.crossexam_downgrades === 1 ? "" : "s"} sent back</div></div>
     <div class="stat py-2 px-4"><div class="stat-title text-xs">Engine run</div><div class="stat-value text-xl">${s.seconds}s</div><div class="stat-desc">${s.folder}</div></div>
   </div>`;
 }
@@ -249,6 +252,16 @@ function Case({ hid, onOpen }) {
     ${people.length > 1 ? html`<div role="tablist" class="tabs tabs-boxed w-fit flex-wrap">${people.map((q, i) => html`
       <button key=${q.person_id} role="tab" class=${"tab " + (i === person ? "tab-active" : "")} onClick=${() => setPerson(i)}>Person ${i + 1}: ${q.person_id}</button>`)}</div>` : null}
 
+    ${x.crossexam && x.crossexam.downgraded && x.crossexam.rules_decision ? html`<${Card} title="Cross-examined" dot="bg-warning"
+        extra=${html`<span class="ml-auto font-normal normal-case tracking-normal"><${Code}>${x.crossexam.provider}</${Code}></span>`}>
+      <div class="flex flex-wrap items-center gap-2 text-sm">
+        <span>Rules wanted</span><${Badge} d=${x.crossexam.rules_decision.decision} size="badge-sm" /><${Code}>${x.crossexam.rules_decision.reason_code}</${Code}>
+        <span class="opacity-60">→</span><span>Final</span><${Badge} d=${d.decision} size="badge-sm" /><${Code}>${d.reason_code}</${Code}>
+      </div>
+      <div class="text-sm"><span class="opacity-60">Rules' reason:</span> ${x.crossexam.rules_decision.reason}</div>
+      <div class="text-sm"><span class="opacity-60">Why it was sent back:</span> ${d.reason}</div>
+    </${Card}>` : null}
+
     <${Court} trial=${x.court[person]} onOpen=${onOpen} />
 
     <div class="grid md:grid-cols-2 gap-4">
@@ -348,6 +361,8 @@ function App() {
   const codes = [...new Set(Object.values(s.by_decision).flatMap((m) => Object.keys(m)))].sort();
   return html`<div class="h-full flex flex-col">
     <${Header} s=${s} theme=${theme} setTheme=${setTheme} big=${big} setBig=${setBig} />
+    ${s.blindfold ? html`<div role="alert" class="alert alert-warning rounded-none py-2 justify-center font-semibold">
+      Demo mode: note parser switched off</div>` : null}
     <main class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(20rem,36%)_1fr] grid-rows-[50vh_auto] lg:grid-rows-1 overflow-auto lg:overflow-hidden">
       <${Queue} codes=${codes} selected=${sel} onSelect=${setSel} />
       <section class="lg:overflow-auto min-w-0"><${Case} hid=${sel} onOpen=${setRec} /></section>
