@@ -1,8 +1,0 @@
-body { font-feature-settings: "tnum" 1; }
-.queue-item { cursor: pointer; border-left: 3px solid transparent; transition: background 120ms ease; }
-.queue-item:hover { background: var(--mantine-color-default-hover); }
-.queue-item[data-active="true"] { background: var(--mantine-color-default-hover); border-left-color: var(--mantine-primary-color-filled); }
-.id-chip { cursor: pointer; font-family: var(--mantine-font-family-monospace); }
-.sticky-col { position: sticky; top: 76px; }
-.prewrap { white-space: pre-wrap; word-break: break-word; }
-.mono { font-family: var(--mantine-font-family-monospace); font-size: 12px; }

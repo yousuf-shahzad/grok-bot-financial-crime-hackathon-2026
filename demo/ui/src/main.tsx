@@ -1,31 +1,14 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import { MantineProvider, createTheme, localStorageColorSchemeManager } from "@mantine/core";
-import { Notifications } from "@mantine/notifications";
-import "@mantine/core/styles.css";
-import "@mantine/notifications/styles.css";
-import "./app.css";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "@/styles/globals.css";
 import App from "./App";
 
-const theme = createTheme({
-  primaryColor: "indigo",
-  defaultRadius: "md",
-  fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-  fontFamilyMonospace: "ui-monospace, SFMono-Regular, Consolas, monospace",
-  headings: { fontWeight: "650" },
-  components: {
-    Card: { defaultProps: { withBorder: true, radius: "md", padding: "lg" } },
-    Badge: { defaultProps: { radius: "sm" } },
-  },
-});
+try {
+  if (localStorage.getItem("cr-dark") === "1") document.documentElement.classList.add("dark");
+} catch { /* storage may be blocked */ }
 
-const colorSchemeManager = localStorageColorSchemeManager({ key: "case-review-scheme" });
-
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <MantineProvider theme={theme} defaultColorScheme="light" colorSchemeManager={colorSchemeManager}>
-      <Notifications position="top-right" />
-      <App />
-    </MantineProvider>
-  </React.StrictMode>,
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
 );
