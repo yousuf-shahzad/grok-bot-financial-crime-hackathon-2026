@@ -196,6 +196,15 @@ def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], scr
     return _guard(final, det), path
 
 
+def _limit(final: Decision, det: Decision, case: dict) -> Decision:
+    """Drop any cited ID the case did not supply. Shared by resolve and review_all."""
+    if final is det or not isinstance(case, dict) or "allowed_ids" not in case:
+        return final
+    allowed = {str(i) for i in (case.get("allowed_ids") or [])}
+    final = replace(final, evidence=_cite(i for i in (final.evidence or []) if i in allowed))
+    return _guard(final, det)
+
+
 def resolve(det: Decision, llm_view: Optional[dict], case: dict) -> tuple:
     """The lead's single-hit contract: (final Decision, trace). Makes the screening call only on a
     disagreement; any screener failure resolves to REVIEW (never a crash, never a clearance)."""
@@ -206,10 +215,7 @@ def resolve(det: Decision, llm_view: Optional[dict], case: dict) -> tuple:
         except Exception:  # noqa: BLE001
             screen = None
     final, path = resolve_one(det, llm_view, screen)
-    if final is not det and isinstance(case, dict) and "allowed_ids" in case:
-        allowed = {str(i) for i in (case.get("allowed_ids") or [])}
-        final = replace(final, evidence=_cite(i for i in final.evidence or [] if i in allowed))
-        final = _guard(final, det)
+    final = _limit(final, det, case)
     return final, {"deterministic": {"decision": det.decision, "reason_code": det.reason_code},
                    "llm": llm_view, "screener": screen,
                    "final": {"decision": final.decision, "reason_code": final.reason_code}, "path": path}
@@ -253,6 +259,7 @@ def review_all(items: list, data, log=None) -> Dict[str, Decision]:
     for hid in ids:
         det = cases[hid][0]
         final, path = resolve_one(det, views.get(hid), screens.get(hid))
+        final = _limit(final, det, cases[hid][1])
         _bump(path)
         with _LOCK:
             _TRACE[hid] = {"deterministic": {"decision": det.decision, "reason_code": det.reason_code},

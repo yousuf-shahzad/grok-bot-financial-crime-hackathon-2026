@@ -135,6 +135,13 @@ class ReviewAll(unittest.TestCase):
         self.assertEqual(t["llm"]["evidence_ids"], ["CUS-T1"])  # invented ID dropped
         self.assertEqual(t["final"], {"decision": SAME, "reason_code": "NAME_DOB_MATCH"})
 
+    def test_review_all_drops_ids_the_case_did_not_supply(self):
+        d = det()
+        d.evidence = ["CUS-T1", "H-T1", "GHOST-1"]
+        self.stub(view(SAME, "NAME_DOB_MATCH"), screen("deterministic"))
+        out = arbiter.review_all([item(d)], None)
+        self.assertEqual(out["H-T1"].evidence, ["CUS-T1"])
+
     def test_invalid_llm_answer_is_ignored(self):
         self.stub({"decision": SAME, "reason_code": "DOB_MISMATCH", "compared": [], "evidence_ids": []}, None)
         self.assertEqual(arbiter.review_all([item(det())], None), {})
