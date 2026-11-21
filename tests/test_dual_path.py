@@ -212,6 +212,19 @@ def item(d):
     return (d, prof, Resolution(people=[person]), {"alert_id": AID, "customer_name": "Quill Examplar"})
 
 
+
+def _has_dual_mode():
+    """True once DUAL_MODE is implemented in main.py or engine/arbiter.py."""
+    for rel in ("main.py", os.path.join("engine", "arbiter.py")):
+        try:
+            with open(os.path.join(SYSTEM, rel), encoding="utf-8") as f:
+                if "DUAL_MODE" in f.read():
+                    return True
+        except OSError:
+            pass
+    return False
+
+
 def _lines(path):
     with open(path, encoding="utf-8") as f:
         return {d["hit_id"]: d for d in (json.loads(x) for x in f if x.strip())}
@@ -369,6 +382,38 @@ class NeverAnLLMClearance(Offline):
             else:
                 self.assertEqual(line["decision"], REVIEW, hid)  # every disagreement ends in REVIEW
 
+    def test_dual_mode_advisory_is_byte_identical_to_rules_only(self):
+        """DUAL_MODE=advisory: a stubbed LLM that disagrees everywhere leaves the output byte-identical."""
+        if not os.path.isdir(FIXTURE):
+            self.skipTest("tests/fixtures/rare missing")
+        if not _has_dual_mode():
+            self.skipTest("DUAL_MODE not on this branch yet")
+        tmp = tempfile.mkdtemp(prefix="dual-adv-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        saved = os.environ.get("DUAL_MODE")
+        self.addCleanup(lambda: os.environ.__setitem__("DUAL_MODE", saved) if saved is not None
+                        else os.environ.pop("DUAL_MODE", None))
+        self.patch(main, "crossexam", None)
+        self.patch(main, "arbiter", None)
+        ref = os.path.join(tmp, "rules.jsonl")
+        os.environ.pop("DUAL_MODE", None)
+        self.assertEqual(main.main(["main.py", FIXTURE, ref]), 0)
+        with open(ref, "rb") as f:
+            want = f.read()
+        self.assertTrue(want.strip())
+        main.arbiter = arbiter
+        os.environ["DUAL_MODE"] = "advisory"
+        hostile = [("judge SAME, screener blames rules", view(SAME, "NAME_DOB_MATCH"), screen_answer("deterministic")),
+                   ("judge DIFF, screener blames rules", view(DIFF, "DOB_MISMATCH"), screen_answer("deterministic")),
+                   ("judge REVIEW, screener blames both", view(REVIEW, "INSUFFICIENT_DATA"), screen_answer("both"))]
+        for label, j, sc in hostile:
+            with self.subTest(label):
+                self.stub(judge=j, screen=sc)
+                out = os.path.join(tmp, "adv.jsonl")
+                self.assertEqual(main.main(["main.py", FIXTURE, out]), 0)
+                with open(out, "rb") as f:
+                    self.assertEqual(f.read(), want)
+
 
 # ===================================================================== (d) failures
 BAD_JUDGE = [None, "not json {", [], 42, {}, {"decision": "MAYBE", "reason_code": "INSUFFICIENT_DATA"},
@@ -503,21 +548,18 @@ class FailuresNeverCrash(Offline):
 class UnvalidatedLLMView(Offline):
     """resolve() called directly with an LLM dict that did not go through llm_judge.judge()."""
 
-    @unittest.expectedFailure  # PR #56: resolve_one reads view["reason_code"] unguarded -> KeyError
     def test_view_without_reason_code_does_not_crash(self):
         self.stub(screen=screen_answer("deterministic"))
         d = det(DIFF)
         final, _ = arbiter.resolve(d, {"decision": SAME}, CASE)
         self.check_line(final, d)
 
-    @unittest.expectedFailure  # PR #56: a code that does not belong to the LLM decision is copied
     def test_view_code_must_belong_to_the_final_decision(self):
         self.stub(screen=screen_answer("deterministic"))
         d = det(DIFF)
         final, _ = arbiter.resolve(d, view(SAME, "DOB_MISMATCH"), CASE)
         self.check_line(final, d)
 
-    @unittest.expectedFailure  # PR #56: the LLM's evidence_ids are cited without the allowed_ids filter
     def test_view_evidence_limited_to_allowed_ids(self):
         self.stub(screen=screen_answer("deterministic"))
         d = det(DIFF)
