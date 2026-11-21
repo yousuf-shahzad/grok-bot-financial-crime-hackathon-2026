@@ -29,6 +29,13 @@ from . import llm, llm_judge
 from .model import Decision
 from .sop import SOP
 
+# A reason code has to belong to the decision we actually return. If the model
+# names a code from the other view, fall back to one that fits.
+_DEFAULT_CODE = {
+    "SAME_ENTITY": "NAME_DOB_MATCH",
+    "REVIEW": "INSUFFICIENT_DATA",
+}
+
 WORKERS = 8
 DIFF, SAME, REVIEW = "DIFFERENT_ENTITY", "SAME_ENTITY", "REVIEW"
 NO_CITE = ("H-", "ACC-")
@@ -103,43 +110,90 @@ def _screen(case: dict, det: Decision, view: dict) -> Optional[dict]:
             "explanation": str(got.get("explanation") or "").strip()}
 
 
+def _cite(ids) -> List[str]:
+    """Evidence that may be shown: real IDs only, never an H- or ACC- id."""
+    out = []
+    seen = set()
+    for raw in ids or []:
+        item = str(raw or "").strip()
+        if not item or item.startswith(NO_CITE) or item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return sorted(out)
+
+
+def _code_for(decision: str, code: str, det: Decision) -> str:
+    allowed = llm_judge.CODES.get(decision) or []
+    if code in allowed:
+        return code
+    if decision == det.decision and det.reason_code in allowed:
+        return det.reason_code
+    return _DEFAULT_CODE.get(decision, "INSUFFICIENT_DATA")
+
+
+def _guard(final: Decision, det: Decision) -> Decision:
+    """Last line: a clearance can only be the rules' own clearance, with a legal code."""
+    if final is det:
+        return det
+    if final.decision == DIFF and det.decision != DIFF:
+        final = replace(final, decision=REVIEW, reason_code="INSUFFICIENT_DATA")
+    code = _code_for(final.decision, final.reason_code, det)
+    evidence = _cite(final.evidence)
+    if final.decision == DIFF:
+        code = det.reason_code
+    if code != final.reason_code or evidence != list(final.evidence or []):
+        final = replace(final, reason_code=code, evidence=evidence)
+    return final
+
+
 def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], screen_failed: bool = False) -> tuple:
     """Pure resolution: (final Decision, path). Unit-tested; holds the safety rule."""
-    if view is None:
+    if not isinstance(view, dict) or view.get("decision") not in (DIFF, SAME, REVIEW):
         return det, "llm_unavailable"
     if view["decision"] == det.decision:
         return det, "agree"
+    if screen_failed:
+        screen = None
     who = {"deterministic": "the rules engine", "llm": "the Grok review", "neither": "neither view",
            "both": "both views"}
     s1 = ("The rules engine decided %s (%s), but an independent Grok review decided %s (%s)."
           % (_human(det.decision), det.reason_code, _human(view["decision"]), view["reason_code"]))
-    if screen is None:
+    error_in = screen.get("error_in") if isinstance(screen, dict) else None
+    if error_in not in who:
         s2 = "A screening agent could not settle the disagreement."
         error_in = None
     else:
-        error_in = screen["error_in"]
         expl = _clean(screen.get("explanation") or "")
-        s2 = "A screening agent compared both and found the error in %s%s." % (who[error_in], (": " + expl) if expl else "")
-    missed = sorted({i for m in (screen or {}).get("significant_missed_facts", []) for i in m["evidence_ids"]
-                     if not i.startswith(NO_CITE)})
-    evidence = sorted(set(det.evidence) | set(missed))
+        s2 = "A screening agent compared both and found the error in %s%s." % (
+            who[error_in], (": " + expl) if expl else "")
+    missed = []
+    for fact in (screen or {}).get("significant_missed_facts") or []:
+        if isinstance(fact, dict):
+            missed.extend(fact.get("evidence_ids") or [])
+    # The line's evidence is the rules' IDs plus IDs the screener says were missed.
+    # The model's own evidence list is not copied: it can name records that are not in the case.
+    evidence = _cite(list(det.evidence or []) + list(missed))
 
     if error_in == "llm":
         s4 = _first_sentence(det.reason)
         reason = " ".join(x for x in (s1, s2, "The rules engine's decision stands.", s4) if x)
-        return replace(det, reason=reason, evidence=evidence), "error_in_llm_keep_rules"
-    if error_in == "deterministic" and view["decision"] in (SAME, REVIEW):
-        ev = sorted(set(evidence) | {i for i in view.get("evidence_ids", []) if not i.startswith(NO_CITE)})
+        final, path = replace(det, reason=reason, evidence=evidence), "error_in_llm_keep_rules"
+    elif error_in == "deterministic" and view["decision"] in (SAME, REVIEW):
         reason = " ".join((s1, s2, "The Grok review's decision is taken."))
-        return replace(det, decision=view["decision"], reason_code=view["reason_code"], reason=reason,
-                       evidence=ev), "error_in_rules_take_llm"
-    if error_in == "deterministic":  # the LLM wants a clearance the rules did not make
+        final, path = replace(det, decision=view["decision"], reason_code=_code_for(view["decision"], view.get("reason_code"), det),
+                              reason=reason, evidence=evidence), "error_in_rules_take_llm"
+    elif error_in == "deterministic":  # the LLM wants a clearance the rules did not make
         reason = " ".join((s1, s2, "A clearance can only come from the rules engine, so an analyst decides."))
-        return replace(det, decision=REVIEW, reason_code="INSUFFICIENT_DATA", reason=reason,
-                       evidence=evidence), "error_in_rules_llm_clear_blocked"
-    reason = " ".join((s1, s2, "An analyst decides."))
-    return (replace(det, decision=REVIEW, reason_code="INSUFFICIENT_DATA", reason=reason, evidence=evidence),
-            "screen_failed" if screen is None else "error_in_%s_review" % error_in)
+        final, path = replace(det, decision=REVIEW, reason_code="INSUFFICIENT_DATA", reason=reason,
+                              evidence=evidence), "error_in_rules_llm_clear_blocked"
+    else:
+        reason = " ".join((s1, s2, "An analyst decides."))
+        # An unrecognised error_in is a screener failure, same as a missing screen.
+        label = "screen_failed" if error_in not in who else "error_in_%s_review" % error_in
+        final, path = replace(det, decision=REVIEW, reason_code="INSUFFICIENT_DATA", reason=reason,
+                              evidence=evidence), label
+    return _guard(final, det), path
 
 
 def resolve(det: Decision, llm_view: Optional[dict], case: dict) -> tuple:
@@ -152,6 +206,10 @@ def resolve(det: Decision, llm_view: Optional[dict], case: dict) -> tuple:
         except Exception:  # noqa: BLE001
             screen = None
     final, path = resolve_one(det, llm_view, screen)
+    if final is not det and isinstance(case, dict) and "allowed_ids" in case:
+        allowed = {str(i) for i in (case.get("allowed_ids") or [])}
+        final = replace(final, evidence=_cite(i for i in final.evidence or [] if i in allowed))
+        final = _guard(final, det)
     return final, {"deterministic": {"decision": det.decision, "reason_code": det.reason_code},
                    "llm": llm_view, "screener": screen,
                    "final": {"decision": final.decision, "reason_code": final.reason_code}, "path": path}

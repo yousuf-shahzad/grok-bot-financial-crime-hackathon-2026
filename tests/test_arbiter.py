@@ -186,5 +186,116 @@ class MainGuard(unittest.TestCase):
         json.dumps(case)  # serialisable
 
 
+class ContractGaps(unittest.TestCase):
+    """Lead's single-hit rules, with ask_json stubbed. Invented IDs only."""
+
+    def setUp(self):
+        self._llm = arbiter.llm
+        self.calls = []
+
+    def tearDown(self):
+        arbiter.llm = self._llm
+
+    def _stub(self, answer):
+        calls = self.calls
+
+        class Stub:
+            STATS = {}
+
+            def available(self):
+                return True
+
+            def ask_json(self, system, user, schema, name="answer", timeout=45.0):
+                calls.append({"name": name, "timeout": timeout})
+                if isinstance(answer, Exception):
+                    raise answer
+                return answer
+
+        arbiter.llm = Stub()
+
+    def case(self, *ids):
+        return {"allowed_ids": list(ids), "alert_id": "A-T1",
+                "screened": {}, "hit": {}, "customers": [], "note": ""}
+
+    def test_agreement_makes_no_call(self):
+        self._stub({"error_in": "llm", "significant_missed_facts": [], "explanation": "no"})
+        d = det()
+        final, tr = arbiter.resolve(d, view(DIFF, "LOCATION_MISMATCH"), self.case("CUS-T1"))
+        self.assertIs(final, d)
+        self.assertEqual(self.calls, [])
+        self.assertIn("path", tr)
+
+    def test_each_error_in_with_decision_pairs(self):
+        pairs = [
+            ("llm", DIFF, "LOCATION_MISMATCH", SAME, "NAME_DOB_MATCH", DIFF, "LOCATION_MISMATCH"),
+            ("llm", REVIEW, "INSUFFICIENT_DATA", DIFF, "DOB_MISMATCH", REVIEW, "INSUFFICIENT_DATA"),
+            ("deterministic", DIFF, "DOB_MISMATCH", SAME, "NAME_DOB_MATCH", SAME, "NAME_DOB_MATCH"),
+            ("deterministic", SAME, "NAME_DOB_MATCH", REVIEW, "AMBIGUOUS_CUSTOMER_RECORD", REVIEW, "AMBIGUOUS_CUSTOMER_RECORD"),
+            ("deterministic", SAME, "NAME_LOCATION_MATCH", DIFF, "DECEASED", REVIEW, "INSUFFICIENT_DATA"),
+            ("neither", DIFF, "DECEASED", SAME, "NAME_DOB_MATCH", REVIEW, "INSUFFICIENT_DATA"),
+            ("both", REVIEW, "INSUFFICIENT_DATA", SAME, "NAME_DOB_LOCATION_MATCH", REVIEW, "INSUFFICIENT_DATA"),
+        ]
+        for error_in, det_d, det_c, llm_d, llm_c, want_d, want_c in pairs:
+            self.calls.clear()
+            self._stub({"error_in": error_in, "significant_missed_facts": [], "explanation": "Checked both."})
+            final, _ = arbiter.resolve(det(det_d, det_c), view(llm_d, llm_c), self.case("CUS-T1"))
+            self.assertEqual((final.decision, final.reason_code), (want_d, want_c), error_in)
+            self.assertEqual(len(self.calls), 1)
+            self.assertIn(final.reason_code, llm_judge.CODES[final.decision])
+            if final.decision == DIFF:
+                self.assertEqual(det_d, DIFF)
+
+    def test_llm_diff_becomes_review(self):
+        self._stub({"error_in": "deterministic", "significant_missed_facts": [], "explanation": "Rules missed it."})
+        final, _ = arbiter.resolve(det(SAME, "NAME_DOB_MATCH"), view(DIFF, "DOB_MISMATCH"), self.case())
+        self.assertEqual((final.decision, final.reason_code), (REVIEW, "INSUFFICIENT_DATA"))
+
+    def test_bad_screener_answers_review(self):
+        for answer in (RuntimeError("timeout"), {"error_in": "unsure"}, "not-json", None, []):
+            self._stub(answer)
+            final, tr = arbiter.resolve(det(), view(SAME, "NAME_DOB_MATCH"), self.case("CUS-T1"))
+            self.assertEqual((final.decision, final.reason_code), (REVIEW, "INSUFFICIENT_DATA"), answer)
+            self.assertIsNone(tr["screener"])
+
+    def test_fake_and_hit_ids_are_filtered(self):
+        self._stub({"error_in": "deterministic", "significant_missed_facts": [
+            {"fact": "a note", "evidence_ids": ["NOTE-T9", "H-NO", "ACC-NO", "KYC-MADE-UP"]}],
+                    "explanation": "A note was missed."})
+        rules = det()
+        rules.evidence = ["CUS-T1", "H-T1", "ACC-T1", "GHOST-1"]
+        final, _ = arbiter.resolve(rules, view(SAME, "NAME_DOB_MATCH", ["KYC-MADE-UP"]),
+                                   self.case("CUS-T1", "NOTE-T9", "H-T1"))
+        self.assertEqual(final.evidence, ["CUS-T1", "NOTE-T9"])
+        self.assertNotIn("H-T1", final.evidence)
+        self.assertNotIn("KYC-MADE-UP", final.evidence)
+
+    def test_bad_llm_code_is_replaced(self):
+        self._stub({"error_in": "deterministic", "significant_missed_facts": [], "explanation": "Take the review."})
+        final, _ = arbiter.resolve(det(), view(SAME, "DOB_MISMATCH"), self.case("CUS-T1"))
+        self.assertEqual(final.decision, SAME)
+        self.assertIn(final.reason_code, llm_judge.CODES[SAME])
+        self.assertTrue(2 <= sentences(final.reason) <= 4)
+
+    def test_screen_failed_flag_reviews(self):
+        final, path = arbiter.resolve_one(det(), view(SAME, "NAME_DOB_MATCH"), screen("llm"), screen_failed=True)
+        self.assertEqual((final.decision, final.reason_code, path), (REVIEW, "INSUFFICIENT_DATA", "screen_failed"))
+
+    def test_unknown_error_in_is_a_screener_failure(self):
+        final, path = arbiter.resolve_one(
+            det(), view(SAME, "NAME_DOB_MATCH"),
+            {"error_in": "unsure", "significant_missed_facts": [], "explanation": "no"})
+        self.assertEqual((final.decision, final.reason_code, path), (REVIEW, "INSUFFICIENT_DATA", "screen_failed"))
+
+    def test_disable_keeps_rules_output(self):
+        os.environ["LLM_DISABLE"] = "1"
+        try:
+            self.assertFalse(arbiter.llm.available())
+            d = det()
+            self.assertEqual(arbiter.review_all([item(d)], None), {})
+            self.assertEqual(main.arbitrate_all([d], [item(d)], None), {})
+        finally:
+            os.environ.pop("LLM_DISABLE", None)
+
+
 if __name__ == "__main__":
     unittest.main()
