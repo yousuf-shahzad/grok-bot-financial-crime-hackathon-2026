@@ -118,9 +118,12 @@ def screen_answer(error_in, missed=(NOTE, HID, ACC, FAKE)):
             "significant_missed_facts": [{"fact": "Invented: lived in Freedonia", "evidence_ids": list(missed)}]}
 
 
-def expected(det_decision, llm_decision, error_in):
-    """The lead's HARD rules, as a table."""
+def expected(det_decision, llm_decision, error_in, cited=True):
+    """The lead's HARD rules, as a table. cited: the screener cites a supplied record. Without one it
+    may not side against the rules or call it unsettled: the rules' line stands (lead, 7064805375)."""
     if llm_decision == det_decision or error_in == "llm":
+        return det_decision
+    if not cited and error_in in ("deterministic", "neither", "both"):
         return det_decision
     if error_in == "deterministic" and llm_decision in (SAME, REVIEW):
         return llm_decision
@@ -164,6 +167,8 @@ class Offline(unittest.TestCase):
         urllib.request.urlopen = _no_network
         self._saved = []
         self.patch(main, "log", lambda msg: None)  # keep the test output quiet
+        self._dual_mode = os.environ.get("DUAL_MODE")
+        os.environ["DUAL_MODE"] = "enforce"  # these tests check the path that can change a line
 
     def patch(self, obj, name, value):
         self._saved.append((obj, name, getattr(obj, name)))
@@ -173,6 +178,10 @@ class Offline(unittest.TestCase):
         for obj, name, value in reversed(self._saved):
             setattr(obj, name, value)
         urllib.request.urlopen = self._urlopen
+        if self._dual_mode is None:
+            os.environ.pop("DUAL_MODE", None)
+        else:
+            os.environ["DUAL_MODE"] = self._dual_mode
 
     def stub(self, judge=None, screen=None, available=True):
         st = StubLLM(judge, screen, available)
@@ -379,8 +388,8 @@ class NeverAnLLMClearance(Offline):
             r = rules[hid]
             if line["decision"] == DIFF:
                 self.assertEqual((r["decision"], r["reason_code"]), (DIFF, line["reason_code"]), hid)
-            else:
-                self.assertEqual(line["decision"], REVIEW, hid)  # every disagreement ends in REVIEW
+            elif (line["decision"], line["reason_code"]) != (r["decision"], r["reason_code"]):
+                self.assertEqual(line["decision"], REVIEW, hid)  # a change is never to SAME here
 
     def test_dual_mode_advisory_is_byte_identical_to_rules_only(self):
         """DUAL_MODE=advisory: a stubbed LLM that disagrees everywhere leaves the output byte-identical."""
@@ -489,7 +498,8 @@ class FailuresNeverCrash(Offline):
                     d, v = det(det_dec), view(llm_dec)
                     final, _ = arbiter.resolve(d, v, CASE)
                     self.check_line(final, d, llm_view=v)
-                    self.assertIn(final.decision, (expected(det_dec, llm_dec, s["error_in"]), REVIEW))
+                    self.assertIn(final.decision, (expected(det_dec, llm_dec, s["error_in"]), REVIEW,
+                                                   expected(det_dec, llm_dec, s["error_in"], cited=False)))
 
     def test_malformed_json_through_the_real_client(self):
         """engine.llm.ask_json itself, given a reply whose content is not JSON (no network, fake key)."""
@@ -617,13 +627,11 @@ class EnforceKeepsRightRules(Offline):
         want, got = self._e2e(screen_answer("llm"))
         self.assertEqual(got, want)
 
-    @unittest.expectedFailure  # guard pending: error_in=deterministic without a supplied cited record -> keep rules
     def test_uncited_blame_keeps_every_line(self):
         """Screener blames the rules but cites no record at all: the rules must stand (lead, 7064805375)."""
         want, got = self._e2e(screen_answer("deterministic", missed=()))
         self.assertEqual(got, want)
 
-    @unittest.expectedFailure  # guard pending: only IDs outside allowed_ids cited -> keep rules
     def test_blame_citing_only_unsupplied_ids_keeps_the_rules(self):
         """Location without DOB / namesake with a shared country: the LLM says SAME, the screener blames
         the rules citing only a fabricated KYC id and hit/account ids. Not a disproof: rules stand."""
