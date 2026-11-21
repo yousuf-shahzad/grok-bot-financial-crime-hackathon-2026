@@ -1,8 +1,8 @@
-# Same Person or Not? A deterministic SOP engine
+# Tryll: same person or not?
 
 `system/run <data folder> <output file>` reads the bank's files, decides every watchlist hit as `DIFFERENT_ENTITY`, `SAME_ENTITY` or `REVIEW`, and writes one JSON line per hit with a reason code, the resolved customer record, a 2 to 4 sentence reason and the IDs of the records that decided it.
 
-It is plain **Python 3 standard library** (3.8+). The decisions are made by **rules**, each a line of the bank's identity SOP, and every fact carries the ID of the record it came from. One optional, narrow use of a language model (a *cross-examiner*, below) can only send a clearance back to `REVIEW`; with no API key the system runs on rules alone and makes no network calls.
+It is plain **Python 3 standard library** (3.8+). The decisions are made by **rules**, each a line of the bank's identity SOP, and every fact carries the ID of the record it came from. **Tryll** is the product name. Two optional uses of a language model sit on top of the rules, and **neither can ever create a clearance**: a *cross-examiner* that can only send a clearance back to `REVIEW`, and a *dual decision path* (an independent Grok decision for every hit plus a screening agent when it disagrees with the rules), switched by `DUAL_MODE`. With no API key the system runs on rules alone and makes no network calls.
 
 ## Architecture
 
@@ -39,6 +39,7 @@ It is plain **Python 3 standard library** (3.8+). The decisions are made by **ru
 | `engine/judge.py` | The decision rules below | 3, 6, 7 |
 | `engine/explain.py` | Reason templates and evidence selection | 9 |
 | `engine/crossexam.py`, `engine/llm.py` | Optional: a model re-reads the free text behind each clearance; can only turn it into `REVIEW` | 6 (safety) |
+| `engine/llm_judge.py`, `engine/arbiter.py`, `engine/sop.py` | Optional dual path: an independent Grok decision per hit, a screening agent on disagreement, `DUAL_MODE` | 6, 7 (safety) |
 
 ## Finding the customer and the listed person
 
@@ -76,6 +77,7 @@ Every fact is a `Fact(value, source)` where `source` is the exact record ID it c
 - The rules make no model calls and use no randomness. Alerts and hits are processed sorted by ID; every set or dict that can reach the output is iterated `sorted(...)`; people are sorted by `person_id` (the smallest record ID in the group); evidence is sorted and de-duplicated.
 - "Today" is the alert's `screened_at`, never the clock. `system/run` sets `PYTHONHASHSEED=0`.
 - The cross-examiner runs at temperature 0 with a strict JSON schema, processes hits in sorted order and merges results by hit ID, so thread timing cannot change the output. It can only move a hit from `DIFFERENT_ENTITY` to `REVIEW`, so even a model that answered differently between runs could never turn a review into a clearance.
+- The dual path is order-independent the same way (results merged by hit ID) and, in the default advisory mode, never changes the output.
 - Check: repeated runs on the dev set (from the repo root and from inside `system/`, rules only and with the cross-examiner) give byte-identical output. <!-- D: re-confirm at feature freeze -->
 
 ## Model and prompts
@@ -91,6 +93,21 @@ Every fact is a `Fact(value, source)` where `source` is the exact record ID it c
 | Prompt | "Careful clerk: extract only explicitly stated facts, never guess", with the field list above |
 | Calls on the dev set | about 113 (one per clearance, run in parallel) |
 | Effect on dev | 0 decisions changed: the rules already read the dev text. With the note parser switched off as a test, rules alone made 5 unsafe clearances; with the cross-examiner, 0 |
+
+### Dual decision path (`DUAL_MODE`)
+
+For every hit an independent Grok judge (`llm_judge.py`) decides from the same structured facts plus the raw texts behind them, and sees the rules engine's own comparison table (name, date of birth, country: agree / contradict / unknown, and whether the location exception applies). If it agrees with the rules, the line is unchanged. If not, a screening agent (`arbiter.py`) says where the error is, and it may side against the rules only by **citing a supplied record that disproves the rules' comparison**; otherwise the rules' line stands.
+
+| Screener verdict | Final |
+|---|---|
+| error in the LLM, or no cited record | the rules' line stands |
+| error in the rules, LLM said `SAME_ENTITY` or `REVIEW` | the LLM's decision |
+| error in the rules, LLM said `DIFFERENT_ENTITY` | `REVIEW`: **a clearance can only come from the rules engine** |
+| neither / both (with a cited record), or screener failure | `REVIEW / INSUFFICIENT_DATA` |
+
+The rule that the LLM can never create a clearance is enforced twice, in `arbiter.py` and again in `main.py`. A failed or invalid LLM answer is "no second view" (the rules' line stands), so an outage cannot push every hit to review.
+
+**Switch:** `DUAL_MODE=enforce` applies the dual path; `DUAL_MODE=advisory` (**current default**) runs it and keeps its trace for the analyst GUI but changes no output line, so the scored output is rules + cross-examiner; `DUAL_MODE=rules` makes no judge or screener calls at all. One-line switch back to rules only: `DUAL_MODE=rules system/run <data> <out>` (or set `DUAL_MODE_DEFAULT` in `system/main.py`). We keep advisory as the default until enforce scores at least as well as rules only on the practice hits with 0 unsafe clearances.
 
 ## Time and cost
 
