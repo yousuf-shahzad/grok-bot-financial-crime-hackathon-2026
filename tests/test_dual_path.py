@@ -118,12 +118,16 @@ def screen_answer(error_in, missed=(NOTE, HID, ACC, FAKE)):
             "significant_missed_facts": [{"fact": "Invented: lived in Freedonia", "evidence_ids": list(missed)}]}
 
 
-def expected(det_decision, llm_decision, error_in, cited=True):
+def expected(det_decision, llm_decision, error_in, cited=True, new_cite=True):
     """The lead's HARD rules, as a table. cited: the screener cites a supplied record. Without one it
-    may not side against the rules or call it unsettled: the rules' line stands (lead, 7064805375)."""
+    may not side against the rules or call it unsettled: the rules' line stands (lead, 7064805375).
+    new_cite: that record is not already in the rules' evidence. Blaming the rules needs a NEW record,
+    else the rules' line stands (#68, guard=no_new_cited_record)."""
     if llm_decision == det_decision or error_in == "llm":
         return det_decision
     if not cited and error_in in ("deterministic", "neither", "both"):
+        return det_decision
+    if not new_cite and error_in == "deterministic":
         return det_decision
     if error_in == "deterministic" and llm_decision in (SAME, REVIEW):
         return llm_decision
@@ -298,7 +302,8 @@ class DisagreementTable(Offline):
                 d = det(det_dec)
                 out = main.arbitrate_all([d], [item(d)], None)
                 final = out.get(d.hit_id, d)
-                self.assertEqual(final.decision, expected(det_dec, llm_dec, err))
+                # the screener only cites CID, already the rules' evidence: not a new record (#68)
+                self.assertEqual(final.decision, expected(det_dec, llm_dec, err, new_cite=False))
                 self.check_line(final, d, case=None, llm_view=view(llm_dec))
                 self.assertEqual(st.calls, ["llm_judge"] if llm_dec == det_dec else ["llm_judge", "screening_agent"])
                 if llm_dec == det_dec:
