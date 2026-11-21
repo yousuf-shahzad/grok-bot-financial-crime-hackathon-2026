@@ -17,8 +17,8 @@ Demo **only** on the invented data in `tests/fixtures/rare`. Never open `data/de
    py -3 -X utf8 demo/app.py tests/fixtures/rare
    ```
 
-   Open http://127.0.0.1:8765 and sign in as **Analyst A** (analyst).
-3. Pre-stage: as Analyst A, decide `H-RC08` (Match, a reason code, one record, a rationale) so **To approve** has a case for the four-eyes beat.
+   Open http://127.0.0.1:8765 and, on **Welcome to Tryll**, sign in as **Analyst A**, role **Analyst**.
+3. Pre-stage: as Analyst A, open `H-RC08` from **To decide** and submit **Match** (a reason, one record, a rationale) so **To approve** has a case for the four-eyes beat.
 4. Run the AI court on `H-RC07` once so you know it works on this network. If it fails, use the fallback below.
 5. Open the 2-minute video in a background tab as the last-resort fallback.
 
@@ -26,13 +26,13 @@ Demo **only** on the invented data in `tests/fixtures/rare`. Never open `data/de
 
 ### 0:00 – 0:20 · Hook (≈45 words)
 
-**Screen:** Tryll **Overview** (four stat cards).
+**Screen:** Tryll **Home** ("Review N cases" and four stat cards).
 
 > Every bank screens its customers against sanctions lists, and analysts spend their days deciding one question: is this hit really our customer? Clear a real match by mistake and a sanctioned person keeps their account. Tryll answers that question the way the bank's own procedure says to.
 
 ### 0:20 – 0:50 · What Tryll is (≈75 words)
 
-**Screen:** stay on Overview, then click **Start reviewing**.
+**Screen:** stay on Home, then click **Review N cases**.
 
 > Tryll works in three layers. First, rules: it rebuilds the customer from five bank systems, trusts a verified identity check over what was typed in, and applies the bank's SOP as code. It clears only when the SOP names a contradiction, confirms only on agreement, and otherwise asks a person. Second, Grok cross-examines every clearance and can only send it back. Third, a person makes every final call, and a second person approves it.
 
@@ -40,16 +40,16 @@ Demo **only** on the invented data in `tests/fixtures/rare`. Never open `data/de
 
 **Clicks and lines:**
 
-1. Open `H-RC07` from **To decide**. Point at the verdict strip, then the **Summary** table.
+1. Click the `H-RC07` row in **To decide**. Point at the verdict strip (Rules engine → Grok judge → Screening agent → Recommendation), then the **Customer vs watchlist hit** table on **Summary**.
    > Name: same. Date of birth: same. Country: different. Many tools would call this a match or clear it. The SOP says a country difference cannot clear a hit when name and date of birth agree, so Tryll hands it to a person, with every value traced to its source record.
 2. Point at **What would settle this**.
    > It also says exactly what is missing, so the analyst knows what to ask the customer for.
-3. **Blind review** switch on, then off.
+3. **Blind review** switch (bottom of the sidebar) on, then off.
    > With blind review on, our recommendation stays hidden until the analyst commits. That is the FCA's own good practice against anchoring.
 4. **Evidence** tab: tick two records. **AI court** tab: run prosecution, defence, adjudicator.
    > The analyst chooses what the AI may read. A prosecution argues it is our customer, a defence argues it is not, and an adjudicator weighs both against the SOP. Every claim cites a record, and it is advisory only.
-5. **Decision card**: Escalate, reason code, rationale, submit.
-6. Switch to **Analyst B** (checker), open `H-RC08` in **To approve**, click **Approve**. Then show that Analyst A cannot approve their own decision.
+5. **Your decision** card: **Escalate**, **Reason**, **Records you rely on**, **Rationale**, submit.
+6. **Switch reviewer** (icon next to the name in the sidebar) to **Analyst B**, role **Checker**; open `H-RC08` in **To approve**, click **Approve**. Then show that Analyst A cannot approve their own decision.
    > Nothing is final until a different person approves. The server enforces that, not the screen.
 7. **History** tab.
    > And every step lands in an audit log the database itself refuses to edit.
@@ -68,7 +68,7 @@ Demo **only** on the invented data in `tests/fixtures/rare`. Never open `data/de
 
 | Problem | What to do and say |
 |---|---|
-| AI court errors or hangs (no network, no key) | "The court is optional and advisory; Tryll decides on rules alone and produces identical output without any key." Move on to the decision card. |
+| AI court errors or hangs (no network, no key) | "The court is optional and advisory; Tryll decides on rules alone and produces identical output without any key." Move on to the **Your decision** card. |
 | GUI will not start | Play the 2-minute video from the background tab and narrate over it. |
 | Running long | Skip the blind-review beat (step 3), then the History beat (step 7). Never skip the four-eyes beat. |
 

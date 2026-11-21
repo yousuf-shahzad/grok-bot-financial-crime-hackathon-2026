@@ -21,8 +21,8 @@ For the submission video (2:00 hard limit). Built from [OVERVIEW.md](OVERVIEW.md
 
    and open http://127.0.0.1:8765. Wait for the queues to load before recording.
 3. Browser at 1920×1080, light theme, zoom 110% so text reads on a phone. Close every other tab.
-4. Two reviewers for four-eyes: sign in as **"Analyst A"** (role analyst) first; you will switch to **"Analyst B"** (role checker).
-5. Before recording, as Analyst A, decide one other case (for example `H-RC08`) so the **To approve** queue has something for Analyst B in part 3.
+4. Two reviewers for four-eyes. On the **Welcome to Tryll** sign-in, enter **"Analyst A"** with role **Analyst**. Later you switch with the **Switch reviewer** icon next to the name in the sidebar and sign in as **"Analyst B"**, role **Checker**.
+5. Before recording, as Analyst A, open `H-RC08` from **To decide** and submit **Match** (a reason, one record, a rationale) so the **To approve** queue has something for Analyst B in part 3.
 6. Title cards for parts 1, 2, 4 and 5 as full-screen slides: white text on dark, one idea per card.
 7. Check the board for the latest dual-path number (OVERVIEW.md section 4 note) and use whatever is current on the day.
 
@@ -31,20 +31,20 @@ The cases used, both invented:
 | Hit | Why it is a good shot |
 |---|---|
 | `H-RC07` Lucan Ferreby | Name and date of birth agree but the countries differ. The SOP says that is **not** enough to clear, so Tryll sends it to a person. Shows judgement, not a rubber stamp. |
-| `H-RC08` Daria Holtzmann | Decided by Analyst A before recording, so it waits in **To approve** for the four-eyes shot. |
+| `H-RC08` Daria Holtzmann | Engine says Match; decided by Analyst A before recording, so it waits in **To approve** for the four-eyes shot. |
 
 ## Shot list
 
 ### 0:00 – 0:15 · The problem (15 s)
 
-**Shot:** title card "Tryll", then "Is the hit the customer?", then cut to the GUI **Overview** with its four stat cards.
+**Shot:** title card "Tryll", then "Is the hit the customer?", then cut to the GUI **Home** page: "Review N cases" and its four stat cards.
 
 **Voice-over (≈35 words):**
 > Banks screen every customer against sanctions lists. Most hits are namesakes, but each one needs an analyst. Clear a real match by mistake and a sanctioned person stays a customer. Review everything and the team drowns.
 
 ### 0:15 – 0:45 · The engine and its numbers (30 s)
 
-**Shot:** card with four numbers, then the **To decide** queue in the sidebar.
+**Shot:** card with four numbers, then the **To decide** queue (a table: Watchlist hit, Listing, Engine says, Status).
 
 **Card:**
 - 50 / 50 practice hits right · **0 unsafe clearances**
@@ -57,14 +57,14 @@ The cases used, both invented:
 
 ### 0:45 – 1:35 · One human review, with the AI court and four-eyes (50 s)
 
-**Shot:** open `H-RC07` from **To decide**. The case opens full width.
+**Shot:** click the `H-RC07` row in **To decide**. The case opens full width with "Back to To decide" at the top.
 
 **Clicks, in order:**
-1. Point at the **verdict strip** (rules engine → Grok judge → screening agent → recommendation), then the **Summary** tab: name **Same**, date of birth **Same**, country **Different**, each with its source record. *(≈8 s)*
+1. Point at the **verdict strip** (Rules engine → Grok judge → Screening agent → Recommendation), then the **Summary** tab: the "Why" paragraph and the **Customer vs watchlist hit** table: Name **Same**, Date of birth **Same**, Countries **Different**, each with its source record. *(≈8 s)*
 2. Point at **What would settle this**. *(≈4 s)*
 3. **Evidence** tab: tick the customer record and the hit's record. **AI court** tab: run prosecution, defence, adjudicator. Let the adjudicator's summary and cited IDs show. *(≈15 s)*
-4. **Decision card**: Escalate, pick the reason code, keep the ticked records, type a one-line rationale, submit. *(≈9 s)*
-5. Switch reviewer to Analyst B (checker). Open `H-RC08` from **To approve**: **Approve**. Then, as Analyst A, try to approve something they decided themselves and show the refusal. *(≈10 s)*
+4. **Your decision** card: **Escalate** ("Need more info"), pick the **Reason**, keep the **Records you rely on**, type a one-line **Rationale**, submit. *(≈9 s)*
+5. **Switch reviewer** to Analyst B (Checker). Open `H-RC08` from **To approve**: **Approve**. Then, as Analyst A, try to approve something they decided themselves and show the refusal. *(≈10 s)*
 6. **History** tab: the append-only audit trail. *(≈4 s)*
 
 **Voice-over (≈125 words):**
@@ -95,6 +95,6 @@ The cases used, both invented:
 - No `.env`, key or `data/` path visible anywhere.
 - Upload as unlisted (YouTube, Loom or Drive) and test the link in a private window.
 
-## When the BoardUI restyle is final
+## Labels
 
-Labels above follow OVERVIEW.md section 6. When Yousuf posts that the GUI is final, click through the shot list once on the invented data and fix any label that changed (queue names, tab names, decision buttons), and check that `H-RC07` still shows name and date of birth **Same** and country **Different**.
+Checked against the final GUI on main (#64) on the invented data: sidebar **Home**, **To decide**, **To approve**, **QA sample**, **Escalated**, **Closed**, **All hits**, with **Blind review** and the light/dark toggle at the bottom; case tabs **Summary**, **Evidence**, **AI court**, **History**; **Your decision** card with **Clear** / **Match** / **Escalate** (checkers see **Approve** / **Return**). `H-RC07` shows Name **Same**, Date of birth **Same**, Countries **Different**. Without a key the verdict strip shows "Grok judge: Off (no key)", so record with the key set. If the GUI changes again, click through once more before recording.
