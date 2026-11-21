@@ -62,7 +62,19 @@ SCREEN_PROMPT = (
     "the SOP below, say where the error is: 'deterministic', 'llm', 'neither' (both are defensible: the "
     "evidence does not settle it) or 'both'. List significant facts a reviewer missed, each with the IDs "
     "of the records that show it, copied exactly; never invent an ID or a fact. explanation: at most two "
-    "short sentences.\n\nSOP:\n" + SOP)
+    "short sentences.\n\n"
+    "The input 'rules' holds the rules engine's decision and its comparison table ('checks': name, "
+    "date_of_birth, country with agree / contradict / unknown / neither, and location_exception_applies). "
+    "Treat that table as correct. You may answer 'deterministic', 'neither' or 'both' ONLY if a supplied "
+    "record shows a fact the table missed or got wrong, and you MUST list that record's ID in "
+    "significant_missed_facts; otherwise answer 'llm'.\n"
+    "RULES THE LLM REVIEWER OFTEN MISAPPLIES, follow them exactly:\n"
+    "1. LOCATION: if every customer country differs from every hit country, the hit IS cleared "
+    "(LOCATION_MISMATCH). The ONLY exception is when the name AND the date of birth BOTH agree; an unknown "
+    "date of birth on either side means the exception does NOT apply.\n"
+    "2. SAME_ENTITY for a person needs the name AND the date of birth to agree; name alone, or name and "
+    "country, is not enough. A company needs name AND country.\n"
+    "3. UNKNOWN IS NEVER AGREEMENT, and never a contradiction by itself.\n\nSOP:\n" + SOP)
 
 
 def _bump(key: str) -> None:
@@ -211,7 +223,16 @@ def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], scr
     # The model's own evidence list is not copied: it can name records that are not in the case.
     evidence = _cite(list(det.evidence or []) + list(missed))
 
-    if error_in == "llm":
+    # Lead's rule: the screener may only side against the rules (or call it unsettled) by citing a
+    # supplied record that disproves the rules' comparison. Without one, the rules' line stands.
+    uncited = error_in in ("deterministic", "neither", "both") and not _cite(missed)
+    if uncited:
+        s2 = ("A screening agent questioned the rules engine but cited no supplied record that disproves "
+              "its comparison.")
+        s4 = _first_sentence(det.reason)
+        reason = _cap_reason(" ".join(x for x in (s1, s2, "The rules engine's decision stands.", s4) if x))
+        final, path = replace(det, reason=reason), "uncited_keep_rules"
+    elif error_in == "llm":
         s4 = _first_sentence(det.reason)
         reason = _cap_reason(" ".join(x for x in (s1, s2, "The rules engine's decision stands.", s4) if x))
         final, path = replace(det, reason=reason, evidence=evidence), "error_in_llm_keep_rules"

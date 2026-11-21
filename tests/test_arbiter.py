@@ -27,7 +27,10 @@ def view(decision, code, ev=()):
     return {"decision": decision, "reason_code": code, "compared": [], "evidence_ids": list(ev)}
 
 
-def screen(error_in, missed=()):
+CITED = [{"fact": "a supplied record shows it", "evidence_ids": ["CUS-T1"]}]
+
+
+def screen(error_in, missed=("CUS-T1",)):
     return {"error_in": error_in, "explanation": "The note shows a shared country. Really.",
             "significant_missed_facts": [{"fact": "lived in Sylvania", "evidence_ids": list(missed)}]}
 
@@ -74,6 +77,28 @@ class ResolveOne(unittest.TestCase):
         for s in (screen("neither"), screen("both"), None):
             final, _ = arbiter.resolve_one(det(), view(SAME, "NAME_DOB_MATCH"), s)
             self.check(final, REVIEW, "INSUFFICIENT_DATA")
+
+
+class UncitedScreener(unittest.TestCase):
+    """Lead's rule: siding against the rules (or calling it unsettled) needs a cited supplied record."""
+    def test_uncited_blame_keeps_rules(self):
+        d = det()
+        for e in ("deterministic", "neither", "both"):
+            final, path = arbiter.resolve_one(d, view(SAME, "NAME_DOB_MATCH"), screen(e, missed=()))
+            self.assertEqual((final.decision, final.reason_code), (d.decision, d.reason_code), e)
+            self.assertEqual(path, "uncited_keep_rules")
+            self.assertTrue(2 <= sentences(final.reason) <= 4, final.reason)
+
+    def test_uncited_never_creates_a_clearance(self):
+        for rules in (det(SAME, "NAME_DOB_MATCH"), det(REVIEW, "INSUFFICIENT_DATA")):
+            for e in ("deterministic", "neither", "both"):
+                final, _ = arbiter.resolve_one(rules, view(DIFF, "DOB_MISMATCH"), screen(e, missed=()))
+                self.assertEqual(final.decision, rules.decision)
+
+    def test_hit_or_account_ids_do_not_count_as_cited(self):
+        d = det()
+        final, path = arbiter.resolve_one(d, view(SAME, "NAME_DOB_MATCH"), screen("deterministic", missed=("H-T1", "ACC-T1")))
+        self.assertEqual(path, "uncited_keep_rules")
 
 
 class StubLLM:
@@ -244,7 +269,7 @@ class ContractGaps(unittest.TestCase):
         ]
         for error_in, det_d, det_c, llm_d, llm_c, want_d, want_c in pairs:
             self.calls.clear()
-            self._stub({"error_in": error_in, "significant_missed_facts": [], "explanation": "Checked both."})
+            self._stub({"error_in": error_in, "significant_missed_facts": CITED, "explanation": "Checked both."})
             final, _ = arbiter.resolve(det(det_d, det_c), view(llm_d, llm_c), self.case("CUS-T1"))
             self.assertEqual((final.decision, final.reason_code), (want_d, want_c), error_in)
             self.assertEqual(len(self.calls), 1)
@@ -253,9 +278,12 @@ class ContractGaps(unittest.TestCase):
                 self.assertEqual(det_d, DIFF)
 
     def test_llm_diff_becomes_review(self):
-        self._stub({"error_in": "deterministic", "significant_missed_facts": [], "explanation": "Rules missed it."})
-        final, _ = arbiter.resolve(det(SAME, "NAME_DOB_MATCH"), view(DIFF, "DOB_MISMATCH"), self.case())
+        self._stub({"error_in": "deterministic", "significant_missed_facts": CITED, "explanation": "Rules missed it."})
+        final, _ = arbiter.resolve(det(SAME, "NAME_DOB_MATCH"), view(DIFF, "DOB_MISMATCH"), self.case("CUS-T1"))
         self.assertEqual((final.decision, final.reason_code), (REVIEW, "INSUFFICIENT_DATA"))
+        # with no supplied record cited, the rules' SAME stands (still never a clearance)
+        final, _ = arbiter.resolve(det(SAME, "NAME_DOB_MATCH"), view(DIFF, "DOB_MISMATCH"), self.case())
+        self.assertEqual(final.decision, SAME)
 
     def test_bad_screener_answers_review(self):
         for answer in (RuntimeError("timeout"), {"error_in": "unsure"}, "not-json", None, []):
@@ -300,7 +328,7 @@ class ContractGaps(unittest.TestCase):
         self.assertEqual((final.decision, final.reason_code, path), (REVIEW, "INSUFFICIENT_DATA", "screen_failed"))
 
     def test_screener_explanation_ids_are_scrubbed(self):
-        self._stub({"error_in": "deterministic", "significant_missed_facts": [],
+        self._stub({"error_in": "deterministic", "significant_missed_facts": CITED,
                     "explanation": "Note NOTE-T9 agrees, but H-NO and ACC-NO and KYC-BAD do not."})
         final, _ = arbiter.resolve(det(), view(SAME, "NAME_DOB_MATCH"), self.case("NOTE-T9", "CUS-T1"))
         self.assertIn("NOTE-T9", final.reason)
@@ -312,7 +340,7 @@ class ContractGaps(unittest.TestCase):
 
     def test_screener_explanation_stays_within_four_sentences(self):
         expl = " ".join("Sentence %d mentions KYC-BAD." % i for i in range(1, 9))
-        self._stub({"error_in": "deterministic", "significant_missed_facts": [], "explanation": expl})
+        self._stub({"error_in": "deterministic", "significant_missed_facts": CITED, "explanation": expl})
         final, _ = arbiter.resolve(det(), view(SAME, "NAME_DOB_MATCH"), self.case("CUS-T1"))
         self.assertTrue(2 <= sentences(final.reason) <= 4, final.reason)
         self.assertNotIn("KYC-BAD", final.reason)
