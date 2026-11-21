@@ -266,7 +266,29 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("request too large")
         return json.loads(self.rfile.read(n).decode("utf-8") or "{}")
 
+    def _authorised(self):
+        """Optional passcode for a hosted demo (TRYLL_DEMO_PASSCODE): the browser's own sign-in prompt."""
+        code = os.environ.get("TRYLL_DEMO_PASSCODE", "")
+        if not code:
+            return True
+        import base64, hmac
+        got = self.headers.get("Authorization", "")
+        if got.startswith("Basic "):
+            try:
+                pw = base64.b64decode(got[6:]).decode("utf-8", "replace").split(":", 1)[-1]
+                if hmac.compare_digest(pw, code):
+                    return True
+            except Exception:
+                pass
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Tryll demo"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def do_POST(self):
+        if not self._authorised():
+            return
         u = urlparse(self.path)
         if not STATE.ready:
             return self._send(503, {"error": STATE.status})
@@ -281,6 +303,10 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not found"})
 
     def do_GET(self):
+        if self.path.startswith("/healthz"):
+            return self._send(200, {"ok": True})
+        if not self._authorised():
+            return
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         if not u.path.startswith("/api/"):
@@ -479,7 +505,9 @@ def main(argv):
     if len(argv) < 2:
         raise SystemExit(__doc__)
     folder = os.path.abspath(argv[1])
-    port = int(argv[argv.index("--port") + 1]) if "--port" in argv else 8765
+    port = int(argv[argv.index("--port") + 1]) if "--port" in argv else int(os.environ.get("PORT", "8765"))
+    # Local by default. A hosted demo passes --host 0.0.0.0 (and should load invented fixtures only).
+    host = argv[argv.index("--host") + 1] if "--host" in argv else "127.0.0.1"
     STATE = State(folder)
     STORE = review_api.ReviewStore()
     if "--blindfold" in argv:
@@ -491,8 +519,9 @@ def main(argv):
         STATE.blindfold = True
         print("BLINDFOLD demo mode: note parser off, decisions differ from system/run on purpose")
     threading.Thread(target=STATE.build, daemon=True).start()
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print("Case Review on http://127.0.0.1:%d  (data: %s). Ctrl+C to stop." % (port, folder))
+    srv = ThreadingHTTPServer((host, port), Handler)
+    print("Tryll on http://%s:%d  (data: %s)%s. Ctrl+C to stop." % (
+        host, port, folder, ", passcode on" if os.environ.get("TRYLL_DEMO_PASSCODE") else ""), flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
