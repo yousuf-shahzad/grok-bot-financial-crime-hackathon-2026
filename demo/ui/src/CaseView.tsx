@@ -64,14 +64,14 @@ export default function CaseView({ hitId, onChanged, onBack, backLabel }: { hitI
   const name = d.profile.names[0]?.value || hitId;
 
   return (
-    <div className="mx-auto grid max-w-[90rem] gap-6 p-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="flex min-w-0 flex-col gap-6">
+    <div className="mx-auto grid max-w-[90rem] gap-8 px-10 py-10 xl:grid-cols-[minmax(0,1fr)_23rem]">
+      <div className="flex min-w-0 flex-col gap-8">
         <button type="button" onClick={onBack} className="-mb-2 inline-flex items-center gap-1 self-start text-body-2-medium text-text-secondary hover:text-text-primary"><RiArrowLeftLine size={16} />Back to {backLabel}</button>
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-title-1-semibold text-text-primary">{name}</h1>
+              <h1 className="font-display text-[2.25rem] leading-tight text-navy dark:text-text-primary">{name}</h1>
               <StatusChip color={BUCKET[d.workflow].color}>{BUCKET[d.workflow].label}</StatusChip>
             </div>
             <p className="mt-1 text-body-regular text-text-secondary">
@@ -113,7 +113,7 @@ export default function CaseView({ hitId, onChanged, onBack, backLabel }: { hitI
             <Tab id="history" count={d.history.length || undefined}>History</Tab>
           </TabList>
 
-          <TabPanel id="summary" className="flex flex-col gap-6 pt-6">
+          <TabPanel id="summary" className="flex flex-col gap-7 pt-7">
             {!hidden && (
               <Card title="Why">
                 <p className="text-body-regular text-text-primary">{sys.reason}</p>

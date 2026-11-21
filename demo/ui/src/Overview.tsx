@@ -16,11 +16,11 @@ export default function Overview({ summary, counts, tick, onOpen, reviewer }: {
   const grok = !summary.llm.startsWith("rules");
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-8 px-8 py-10">
+    <div className="mx-auto flex max-w-6xl flex-col gap-10 px-10 py-12">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-body-2-medium text-text-tertiary">{summary.hits} watchlist hits across {summary.alerts} alerts</p>
-          <h1 className="mt-1 text-large-title-semibold text-text-primary">{reviewer ? `Hi ${reviewer.name.split(" ")[0]}` : "Tryll"}</h1>
+          <h1 className="mt-2 font-display text-[3rem] leading-none text-navy dark:text-text-primary">{reviewer ? `Hi ${reviewer.name.split(" ")[0]}` : "Tryll"}</h1>
           <p className="mt-2 max-w-xl text-body-regular text-text-secondary">Tryll checks every hit against the bank's rules and only clears the ones it can prove are someone else. You make the final call on the rest.</p>
         </div>
         <Button variant="primary" trailingIcon={RiArrowRightLine} onClick={() => onOpen("decide")}>Review {counts.decide} cases</Button>
@@ -33,9 +33,9 @@ export default function Overview({ summary, counts, tick, onOpen, reviewer }: {
         { icon: RiCheckboxCircleLine, label: "Closed", value: String(counts.closed), delta: pct(counts.closed), deltaColor: "lime", tone: "emerald", caption: "Of all hits" },
       ]} />
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        <section className="rounded-2xl border border-separator-border bg-background-primary-default p-6">
-          <h2 className="text-headline-semibold text-text-primary">What Tryll found</h2>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="rounded-2xl border border-separator-border bg-background-primary-default p-8">
+          <h2 className="font-display text-[1.5rem] text-navy dark:text-text-primary">What Tryll found</h2>
           <div className="mt-5 flex h-2.5 overflow-hidden rounded-full bg-background-secondary-default">
             <div className="bg-lime-500" style={{ width: pct(n("DIFFERENT_ENTITY")) }} />
             <div className="bg-amber-400" style={{ width: pct(n("REVIEW")) }} />
@@ -49,8 +49,8 @@ export default function Overview({ summary, counts, tick, onOpen, reviewer }: {
           {summary.practice.n > 0 && <p className="mt-5 border-t border-separator-border pt-4 text-body-2-regular text-text-secondary">Practice set: <b className="text-text-primary">{summary.practice.score}%</b> score, <b className="text-text-primary">{summary.practice.unsafe}</b> unsafe clearances.</p>}
         </section>
 
-        <section className="rounded-2xl border border-separator-border bg-background-primary-default p-6">
-          <h2 className="text-headline-semibold text-text-primary">How a decision is made</h2>
+        <section className="rounded-2xl border border-separator-border bg-background-primary-default p-8">
+          <h2 className="font-display text-[1.5rem] text-navy dark:text-text-primary">How a decision is made</h2>
           <ol className="mt-4 flex flex-col gap-4">
             {[
               ["Rules", "The bank's procedure, as code. Clears only on a proven contradiction."],
@@ -59,7 +59,7 @@ export default function Overview({ summary, counts, tick, onOpen, reviewer }: {
               ["A colleague", "Approves or sends it back. The log cannot be changed."],
             ].map(([t, d], i) => (
               <li key={t} className="flex gap-3">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-background-secondary-default text-caption-1-semibold text-text-secondary">{i + 1}</span>
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gold-100 text-caption-1-semibold text-gold-700">{i + 1}</span>
                 <span><span className="block text-body-semibold text-text-primary">{t}</span><span className="block text-body-2-regular text-text-secondary">{d}</span></span>
               </li>
             ))}
