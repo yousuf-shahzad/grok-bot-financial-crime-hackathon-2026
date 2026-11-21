@@ -48,22 +48,44 @@ if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "engi
 REVIEW_CODES = ("INSUFFICIENT_DATA", "AMBIGUOUS_CUSTOMER_RECORD")
 
 
-def cross_examine(d: Decision, profile, res, alert: dict, data) -> Decision:
-    """Let the cross-examiner look at a clearance. It may only turn DIFFERENT_ENTITY into REVIEW:
-    anything else it returns (or any error) keeps the rules' decision unchanged."""
-    if crossexam is None or d.decision != "DIFFERENT_ENTITY":
-        return d
+def _accept(old: Decision, new) -> bool:
+    """The lead's rule, enforced here: the cross-examiner may only turn a clearance into REVIEW."""
+    return (old.decision == "DIFFERENT_ENTITY" and isinstance(new, Decision) and new.decision == "REVIEW"
+            and new.reason_code in REVIEW_CODES and new.hit_id == old.hit_id and new.alert_id == old.alert_id)
+
+
+def cross_examine_all(items: list, data) -> dict:
+    """items: [(decision, profile, resolution, alert)] for every judged hit, in output order.
+    Returns {hit_id: Decision} for the decisions to replace (guarded). Any failure: {} (rules only)."""
+    if crossexam is None or not items:
+        return {}
     try:
-        new = crossexam.review(d, profile, res, alert, data)
+        if hasattr(crossexam, "review_all"):
+            got = crossexam.review_all(items, data, log=log) or {}
+        else:  # per-hit API
+            got = {}
+            for d, profile, res, alert in items:
+                if d.decision == "DIFFERENT_ENTITY":
+                    got[d.hit_id] = crossexam.review(d, profile, res, alert, data)
     except Exception:  # noqa: BLE001
-        log("main: crossexam failed on %s, keeping the rules' decision\n%s" % (d.hit_id, traceback.format_exc()))
-        return d
-    if isinstance(new, Decision) and new.decision == "REVIEW" and new.reason_code in REVIEW_CODES \
-            and new.hit_id == d.hit_id and new.alert_id == d.alert_id:
-        return new
-    if new is not None and new is not d:
-        log("main: crossexam returned something other than a REVIEW for %s, ignored" % d.hit_id)
-    return d
+        log("main: crossexam failed, keeping the rules' decisions\n" + traceback.format_exc())
+        return {}
+    if not isinstance(got, dict):
+        log("main: crossexam returned %s, not a dict; ignored" % type(got).__name__)
+        return {}
+    by_id = {d.hit_id: d for d, _, _, _ in items}
+    out = {}
+    for hid in sorted(str(k) for k in got):
+        old, new = by_id.get(hid), got.get(hid)
+        if old is None or new is None or new is old:
+            continue
+        if _accept(old, new):
+            out[hid] = new
+        else:
+            log("main: crossexam change for %s ignored (only DIFFERENT_ENTITY -> REVIEW is allowed)" % hid)
+    if out:
+        log("main: crossexam sent %d clearance(s) to REVIEW" % len(out))
+    return out
 
 
 def read_table(folder: str, name: str) -> list:
@@ -165,11 +187,13 @@ def main(argv: list) -> int:
         except Exception:
             log("main: could not install name variants, using built-in table\n" + traceback.format_exc())
 
-    lines = []
-    resolved = {}  # alert_id -> Resolution, resolve once per alert
+    decisions = []  # in output order
+    items = []      # (decision, profile, resolution, alert) for every hit the judge decided
+    resolved = {}   # alert_id -> Resolution, resolve once per alert
     for hit in hits:
         hit_id, alert_id = str(hit["hit_id"]), str(hit.get("alert_id") or "")
         alert = alerts.get(alert_id, {"alert_id": alert_id})
+        judged = None
         try:
             if alert_id not in resolved:
                 if resolve is not None and data is not None:
@@ -184,15 +208,22 @@ def main(argv: list) -> int:
                                      entity_type=str(hit.get("entity_type") or ""))
             if judge is not None:
                 d = judge.decide(profile, res, alert)
-                d = cross_examine(d, profile, res, alert, data)
+                judged = (profile, res, alert)
             else:
                 d = fallback_decision(hit_id, alert_id)
         except Exception:
             log("main: error on %s, writing REVIEW\n%s" % (hit_id, traceback.format_exc()))
             d = fallback_decision(hit_id, alert_id)
+            judged = None
         # the output always carries the file's own IDs
         d.hit_id, d.alert_id = hit_id, alert_id
-        lines.append(to_line(d))
+        decisions.append(d)
+        if judged is not None:
+            items.append((d,) + judged)
+
+    # optional LLM cross-examiner, one batch so calls can run in parallel; guarded in cross_examine_all
+    replace = cross_examine_all(items, data)
+    lines = [to_line(replace.get(d.hit_id, d)) for d in decisions]
 
     parent = os.path.dirname(out_path)
     if parent:
