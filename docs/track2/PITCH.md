@@ -75,18 +75,18 @@ Demo **only** on the invented data in `tests/fixtures/rare`. Never open `data/de
 ## Likely judge questions
 
 **How do you get the same answer every time, with an LLM in the loop?**
-The scored decisions come from deterministic rules: sorted iteration, no clocks, no randomness. Two full runs are byte-identical, also from a different working directory. Grok runs at temperature 0 with a strict JSON schema, and in our measurement three fresh runs sent back exactly the same clearances. Without a key, output is byte-identical to rules-only.
+The scored decisions come from deterministic rules: sorted iteration, no clocks, no randomness. Two full runs are byte-identical, also from a different working directory. Grok runs at temperature 0 with a strict JSON schema, and a full run with Grok switched on gives output byte-identical to the rules-only run. Without a key, output is byte-identical too.
 
 **How do you stop the LLM from clearing a real match?**
 It structurally cannot. The cross-examiner can only turn a clearance into a review. The dual path's arbiter enforces "a final clearance can only come from the rules" twice in code, and 26 safety tests across 968 LLM and screener combinations never produce a new clearance. `DUAL_MODE=rules` switches the AI off entirely in one line.
 
 **Why rules first and not just an LLM?**
-The costs are asymmetric: a wrong clearance costs 60, a needless review 2 to 3. Rules give a reason you can audit and an answer that does not drift. When we let Grok make every call, it misread the SOP's location exception and did worse than the rules, so the AI's job is to catch what the rules miss, never to overrule them towards a clearance.
+The costs are asymmetric: a wrong clearance costs 60, a needless review 2 to 3. Rules give a reason you can audit and an answer that does not drift. Grok does make its own call on every hit, and agrees with the rules on 91.6% of them (750 of 819). In every one of the remaining 69 disagreements, the screening agent found the rules right. So the AI's job is to catch what the rules miss, never to overrule them towards a clearance.
 
 **What is missing, or what would you do next?**
 Be honest:
 - Fifty practice labels is a small set, so 100% is probably somewhat tuned to them. We kept every ambiguous parse as "unknown" to limit that.
-- The dual path is still being tuned to beat rules-only; until it does, the scored output stays on rules plus the cross-examiner (check the board for the latest status before going on stage).
+- Grok's own calls now agree with the rules on 91.6% of hits; the 69 disagreements all came out in favour of the rules, which tells us where Grok still misreads the SOP (hits with no date of birth, and appointment dates mistaken for dated reports).
 - Sign-in is by name and role; in production it plugs into the bank's single sign-on at the same point.
 - SQLite on one machine is right for a demo and keeps the data local; production would use the bank's database with the same append-only rule.
 - Next: request-for-information workflows from "what would settle this", and QA sampling rates set by risk.
