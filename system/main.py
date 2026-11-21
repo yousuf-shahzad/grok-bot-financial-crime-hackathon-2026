@@ -73,7 +73,7 @@ def _arbiter_ok(old: Decision, new) -> bool:
     return True
 
 
-DUAL_MODE_DEFAULT = "advisory"  # flip to "enforce" once enforce scores >= rules-only with 0 unsafe
+DUAL_MODE_DEFAULT = "enforce"  # lead, 15:54: live enforce = 100% practice, 0 unsafe. Switch back: DUAL_MODE=advisory or rules
 
 
 def dual_mode() -> str:
@@ -102,7 +102,12 @@ def arbitrate_all(decisions: list, items: list, data) -> dict:
     for hid in sorted(str(k) for k in got) if isinstance(got, dict) else []:
         old = by_id.get(hid)
         if old is not None and _arbiter_ok(old, got[hid]):
-            out[hid] = got[hid]
+            new = got[hid]
+            # same decision and code as the rules: keep the rules' line byte for byte, so the output
+            # does not depend on whether an API key was set (the trace still records both views)
+            if new.decision == old.decision and new.reason_code == old.reason_code:
+                continue
+            out[hid] = new
         elif old is not None:
             log("main: arbiter change for %s ignored (it would create a clearance or is malformed)" % hid)
     if mode != "enforce":
