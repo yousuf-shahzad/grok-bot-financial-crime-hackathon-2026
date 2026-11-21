@@ -1,0 +1,46 @@
+{
+ "groups": [
+  [
+   "thomas",
+   "tom",
+   "tommy"
+  ],
+  [
+   "muhammad",
+   "mohammed",
+   "mohamed"
+  ]
+ ],
+ "legal_forms": [
+  "ab",
+  "ag",
+  "as",
+  "asa",
+  "bv",
+  "co",
+  "company",
+  "corp",
+  "corporation",
+  "gmbh",
+  "inc",
+  "kg",
+  "limited",
+  "llc",
+  "llp",
+  "lp",
+  "ltd",
+  "na",
+  "nv",
+  "oy",
+  "oyj",
+  "plc",
+  "sa",
+  "sarl",
+  "sas",
+  "se",
+  "sf",
+  "sl",
+  "spa",
+  "srl"
+ ]
+}

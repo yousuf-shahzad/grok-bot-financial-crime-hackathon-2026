@@ -215,6 +215,57 @@ class UseVariantsTest(unittest.TestCase):
         self.assertEqual(names.variant_forms("brannoc"), ["brannoc"])
         self.assertEqual(names.variant_forms(""), [])
 
+    def test_shape_list_of_comma_strings(self):
+        names.use_variants(["quillon, quill", "brannoc; bran"])
+        self.assertTrue(names.parts_match("quill", "Quillon"))
+        self.assertTrue(names.parts_match("bran", "brannoc"))
+
+    def test_shape_dict_of_numbered_groups(self):
+        names.use_variants({"1": ["quillon", "quill"], "group_2": ["brannoc", "bran"]})
+        self.assertTrue(names.parts_match("quill", "quillon"))
+        self.assertTrue(names.parts_match("bran", "brannoc"))
+        self.assertEqual(names.variant_forms("quill"), ["quill", "quillon"])  # "1" is not a name
+
+    def test_shape_canonical_name_keys(self):
+        names.use_variants({"nick": ["nicoletto"], "quillon": "quill, quin"})
+        self.assertTrue(names.parts_match("nick", "nicoletto"))   # a key that is a name joins its group
+        self.assertTrue(names.parts_match("quin", "quillon"))
+
+    def test_shape_categories(self):
+        names.use_variants({"given_names": [["quillon", "quill"]],
+                            "surnames": {"brannoc": ["brannock", "brannocke"]},
+                            "company_suffixes": ["zorg"]})
+        self.assertTrue(names.parts_match("quill", "quillon"))
+        self.assertTrue(names.parts_match("brannocke", "brannoc"))
+        self.assertEqual(names.parts("Duskwater Zorg Ltd", company=True), ["duskwater", "ltd"])
+
+    def test_shape_list_of_objects(self):
+        names.use_variants([{"names": ["quillon", "quill"]}, {"variants": "brannoc, bran"}])
+        self.assertTrue(names.parts_match("quill", "quillon"))
+        self.assertTrue(names.parts_match("bran", "brannoc"))
+
+    def test_groups_plus_legal_forms_keys(self):
+        names.use_variants({"groups": [["quillon", "quill"]], "legal_forms": "zorg, ltd"})
+        self.assertTrue(names.parts_match("quill", "quillon"))
+        self.assertEqual(names.parts("Duskwater Zorg Ltd GmbH", company=True), ["duskwater", "gmbh"])
+
+    def test_legal_forms_only_keeps_builtin_variants(self):
+        names.use_variants({"legal_forms": ["zorg"]})
+        self.assertTrue(names.parts_match("Tom", "Thomas"))
+        self.assertEqual(names.parts("Duskwater Zorg", company=True), ["duskwater"])
+
+    def test_unrecognised_shapes_fall_back(self):
+        for junk in [42, "quillon", True, [], {}, [1, 2, 3], {"a": 1}, [["solo"]], [[None, 7]],
+                     {"groups": "nonsense"}, [[["deep"]]]]:
+            names.use_variants(junk)
+            self.assertTrue(names.parts_match("Tom", "Thomas"), repr(junk))
+            self.assertEqual(names.parts("Brightvane Ltd", company=True), ["brightvane"], repr(junk))
+
+    def test_never_raises_on_odd_values(self):
+        weird = {"groups": [["quillon", None, 3, {"x": ["quill"]}]], "legal_forms": [None, 5, "zorg"]}
+        names.use_variants(weird)
+        self.assertTrue(names.parts_match("quill", "quillon"))
+
     def test_none_restores_builtins(self):
         names.use_variants([["quillon", "quin"]])
         names.use_variants(None)
