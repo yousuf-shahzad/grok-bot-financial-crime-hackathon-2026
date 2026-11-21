@@ -5,3 +5,4 @@ tools/board text eol=lf
 system/run text eol=lf
 .claude/hooks/* text eol=lf
 *.jpg binary
+output/*.jsonl text eol=lf
