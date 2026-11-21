@@ -74,7 +74,20 @@ PROMPT = (
     "4. The input 'rules' holds the rules engine's decision and its comparison table ('checks': name, "
     "date_of_birth, country with agree / contradict / unknown / neither, and whether the location exception "
     "applies). Treat that table as correct unless a supplied record shows a fact it missed or got wrong; if "
-    "you decide differently from the rules, your evidence_ids MUST include that record.\n\nSOP:\n" + SOP)
+    "you decide differently from the rules, your evidence_ids MUST include that record.\n"
+    "5. DATED REPORT: only a line of the form 'According to <source>; <date>: <text>' is a dated report. "
+    "An appointment, election, birth or any other date in the profile is NOT a dated report and can never "
+    "support TEMPORAL_IMPOSSIBILITY.\n\n"
+    "WORKED EXAMPLES (invented):\n"
+    "A. Person. Names agree, both tied to Spain, the hit gives NO date of birth anywhere. Answer: REVIEW / "
+    "INSUFFICIENT_DATA. Not SAME_ENTITY: a person needs name AND date of birth to agree, and an unknown date "
+    "of birth is not agreement.\n"
+    "B. Person. Names agree, dates of birth agree (1971-04-02 and 1971), customer tied only to Ireland, hit "
+    "tied only to Brazil. Answer: REVIEW / INSUFFICIENT_DATA. Not DIFFERENT_ENTITY (name and date of birth "
+    "agree, so the country difference does not clear) and not SAME_ENTITY (the countries contradict).\n"
+    "C. Person. Names agree, customer tied only to France, hit tied only to Kenya, the hit gives no date of "
+    "birth. Answer: DIFFERENT_ENTITY / LOCATION_MISMATCH: the exception needs the date of birth to agree, "
+    "and it is unknown.\n\nSOP:\n" + SOP)
 
 
 def _val(v) -> str:
