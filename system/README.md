@@ -107,7 +107,9 @@ For every hit an independent Grok judge (`llm_judge.py`) decides from the same s
 
 The rule that the LLM can never create a clearance is enforced twice, in `arbiter.py` and again in `main.py`. A failed or invalid LLM answer is "no second view" (the rules' line stands), so an outage cannot push every hit to review.
 
-**Switch:** `DUAL_MODE=enforce` applies the dual path; `DUAL_MODE=advisory` (**current default**) runs it and keeps its trace for the analyst GUI but changes no output line, so the scored output is rules + cross-examiner; `DUAL_MODE=rules` makes no judge or screener calls at all. One-line switch back to rules only: `DUAL_MODE=rules system/run <data> <out>` (or set `DUAL_MODE_DEFAULT` in `system/main.py`). We keep advisory as the default until enforce scores at least as well as rules only on the practice hits with 0 unsafe clearances.
+**Switch:** `DUAL_MODE=enforce` (**default**) applies the dual path; `DUAL_MODE=advisory` runs it and keeps its trace for the analyst GUI but changes no output line, so the scored output is rules + cross-examiner; `DUAL_MODE=rules` makes no judge or screener calls at all. One-line switch back: `DUAL_MODE=advisory system/run <data> <out>` (or `DUAL_MODE=rules`, or set `DUAL_MODE_DEFAULT` in `system/main.py`). A line is only rewritten when the dual path changes its **decision or reason code**; when the rules' decision stands, the rules' line is kept byte for byte, so the output does not depend on whether an API key is set.
+
+**Live result on dev (Grok, enforce):** practice 50/50, 0 unsafe clearances, 0 of 819 lines differ from rules only in decision or reason code. The Grok judge agreed with the rules on 644 of 819 hits (78.6%); on all 175 disagreements the screening agent found the error in the Grok judge and the rules stood. About 4 minutes for 1,108 judge and screener calls plus 114 cross-examiner calls. With no key the system is rules only and byte-identical, so a run without the model is safe too.
 
 ## Time and cost
 
