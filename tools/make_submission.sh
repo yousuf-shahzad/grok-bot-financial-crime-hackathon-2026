@@ -96,8 +96,9 @@ bad="$(printf '%s\n' "$files" | grep -Ev "$ALLOWED" || true)"
 [ -z "$bad" ] || die "unexpected files in submission: $bad"
 # data-like files: any .xlsx/.csv/.env, a data/ or dev/ folder, dataset names, and any .jsonl/.json
 # outside tests/fixtures/ and output/dev.jsonl
-datalike="$(printf '%s\n' "$files" | grep -Ei '\.xlsx$|\.csv$|\.(db|sqlite3?)$|node_modules/|/\.env|(^|/)(data|dev)/|practice_labels|policy_sheet|start_here' || true)"
-datalike="$datalike$(printf '%s\n' "$files" | grep -Ei '\.jsonl?$' | grep -Ev '^\./(tests/fixtures/|output/dev\.jsonl$)' || true)"
+datalike="$(printf '%s\n' "$files" | grep -Ei '\.xlsx$|\.csv$|\.(db|sqlite3?)$|node_modules/|(^|/)\.reviews/|/\.env|(^|/)(data|dev)/|practice_labels|policy_sheet|start_here' || true)"
+# .json/.jsonl only as invented fixtures, our output, or the GUI's build config
+datalike="$datalike$(printf '%s\n' "$files" | grep -Ei '\.jsonl?$' | grep -Ev '^\./(tests/fixtures/|output/dev\.jsonl$|demo/ui/(package|package-lock|tsconfig)\.json$)' || true)"
 [ -z "$datalike" ] || die "data-like files in submission: $datalike"
 if grep -rIlE 'sk-or-v1-[A-Za-z0-9]{20,}|xai-[A-Za-z0-9]{20,}|(OPENROUTER|XAI)_API_KEY *[=:] *["'"'"']?[A-Za-z0-9_-]{16,}' "$DEST" --exclude-dir=.git >/dev/null 2>&1; then
   die "something that looks like an API key is in the submission"
