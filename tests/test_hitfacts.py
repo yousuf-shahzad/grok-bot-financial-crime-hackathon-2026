@@ -275,6 +275,36 @@ class HitFactsTest(unittest.TestCase):
         ), data=None)
         self.assertEqual(profile.births, [])
 
+    def test_lowercase_in_is_not_india(self):
+        snippet = "Born 4 May 1962 in Portugal and later fined. id stamp."
+        data = types.SimpleNamespace(search_by_query={
+            "ada example": [{
+                "result_id": "SR-PT-1",
+                "title": "a sanctioned individual",
+                "snippet": snippet,
+            }],
+        })
+        india = extract(_hit(primary_category="Sanctions", countries="India"), data)
+        self.assertEqual(india.births, [])
+        andorra = extract(_hit(primary_category="Sanctions", countries="Andorra"), data)
+        self.assertEqual(andorra.births, [])
+        indonesia = extract(_hit(primary_category="Sanctions", countries="ID"), data)
+        self.assertEqual(indonesia.births, [])
+        portugal = extract(_hit(primary_category="Sanctions", countries="Portugal"), data)
+        self.assertEqual(portugal.births[0].source, "SR-PT-1")
+        self.assertEqual(portugal.births[0].years, (1962,))
+
+    def test_capitalised_country_span_still_matches(self):
+        data = types.SimpleNamespace(search_by_query={
+            "ada example": [{
+                "result_id": "SR-UK-1",
+                "title": "a sanctioned individual",
+                "snippet": "Born 4 May 1962. She is British and based in the United Kingdom.",
+            }],
+        })
+        profile = extract(_hit(primary_category="Sanctions", nationality="United Kingdom"), data)
+        self.assertEqual(profile.births[0].source, "SR-UK-1")
+
     def test_age_in_a_search_snippet(self):
         data = types.SimpleNamespace(search_by_query={
             "ada example": [{

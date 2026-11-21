@@ -515,22 +515,57 @@ def _search_index(data):
     return index or {}
 
 
+def _country_token(token):
+    """A token worth passing to countries.normalise.
+
+    Lowercase words are skipped entirely: 'in' is India, 'and' is Andorra,
+    'id' is Indonesia. A 2-3 letter token counts only when it is ALL CAPS
+    ('UK', 'ID'), so title-case 'In' at the start of a sentence does not.
+    """
+    letters = [ch for ch in token if ch.isalpha()]
+    if not letters or all(ch.islower() for ch in letters):
+        return False
+    if len(letters) <= 3 and not all(ch.isupper() for ch in letters):
+        return False
+    return True
+
+
 def _mentions_country(text, country_names):
+    """True when the text names one of the hit's countries.
+
+    The canonical name is matched as a whole word (so 'India' does not match
+    inside 'in'). Other forms ('British', 'United Kingdom') are normalised
+    only from capitalised runs.
+    """
+    if not country_names:
+        return False
     folded = text.casefold()
     for name in country_names:
+        if len(name) < 4:
+            continue
         if re.search(r"\b" + re.escape(name.casefold()) + r"\b", folded):
             return True
     tokens = _WORD.findall(text)[:80]
     wanted = {name.casefold() for name in country_names}
-    limit = len(tokens)
-    for size in (1, 2, 3, 4):
-        if size > limit:
-            break
-        for start in range(0, limit - size + 1):
-            norm = _normalise(" ".join(tokens[start:start + size]))
-            if norm and norm.casefold() in wanted:
-                return True
-    return False
+    run = []
+
+    def run_matches(words):
+        limit = len(words)
+        for size in range(min(4, limit), 0, -1):
+            for start in range(0, limit - size + 1):
+                norm = _normalise(" ".join(words[start:start + size]))
+                if norm and norm.casefold() in wanted:
+                    return True
+        return False
+
+    for token in tokens:
+        if _country_token(token):
+            run.append(token)
+            continue
+        if run and run_matches(run):
+            return True
+        run = []
+    return bool(run) and run_matches(run)
 
 
 def _first_paragraph(text):

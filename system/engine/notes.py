@@ -234,14 +234,22 @@ def _pick_dates(text, found):
     return dob, check
 
 
+def _country_token(token):
+    """Skip lowercase words. 2-3 letter tokens only when ALL CAPS ('UK', not 'In')."""
+    letters = [ch for ch in token if ch.isalpha()]
+    if not letters or token[:1].islower():
+        return False
+    if len(letters) <= 3 and not all(ch.isupper() for ch in letters):
+        return False
+    return True
+
+
 def _span_country(fragment):
     words = _WORD.findall(fragment)
     for size in range(min(4, len(words)), 0, -1):
         for index in range(0, len(words) - size + 1):
             chunk = words[index:index + size]
-            if not chunk[0][:1].isupper():
-                continue
-            if size == 1 and len(chunk[0]) < 4:
+            if not all(_country_token(word) for word in chunk):
                 continue
             name = _normalise_country(" ".join(chunk))
             if name:
@@ -267,9 +275,7 @@ def _document_country(text):
             if len(words) < size:
                 continue
             chunk = words[-size:]
-            if size == 1 and len(chunk[0]) < 4:
-                continue
-            if not chunk[0][:1].isupper():
+            if not all(_country_token(word) for word in chunk):
                 continue
             name = _normalise_country(" ".join(chunk))
             if name:
@@ -294,9 +300,7 @@ def _countries_in(text):
         for index in range(0, len(tokens) - size + 1):
             if any(occupied[index:index + size]):
                 continue
-            if not tokens[index][:1].isupper():
-                continue
-            if size == 1 and len(tokens[index]) < 4:
+            if not all(_country_token(tokens[index + offset]) for offset in range(size)):
                 continue
             name = _normalise_country(" ".join(tokens[index:index + size]))
             if not name:
