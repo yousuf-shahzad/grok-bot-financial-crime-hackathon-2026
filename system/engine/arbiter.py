@@ -149,7 +149,10 @@ def _guard(final: Decision, det: Decision) -> Decision:
 
 def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], screen_failed: bool = False) -> tuple:
     """Pure resolution: (final Decision, path). Unit-tested; holds the safety rule."""
-    if not isinstance(view, dict) or view.get("decision") not in (DIFF, SAME, REVIEW):
+    # an LLM answer the judge would have rejected (unknown decision, missing or foreign reason code) is
+    # "no second view", exactly as llm_judge.judge() treats it: the rules' line stands
+    if (not isinstance(view, dict) or view.get("decision") not in (DIFF, SAME, REVIEW)
+            or view.get("reason_code") not in llm_judge.CODES.get(view.get("decision"), [])):
         return det, "llm_unavailable"
     if view["decision"] == det.decision:
         return det, "agree"
