@@ -47,12 +47,12 @@ export function Card({ title, aside, children, className, pad = true }: { title?
   return (
     <section className={cx("rounded-xl border border-separator-border bg-background-primary-default", className)}>
       {(title || aside) && (
-        <header className="flex items-center justify-between gap-3 border-b border-separator-border px-5 py-3">
+        <header className="flex items-center justify-between gap-3 border-b border-separator-border px-6 py-4">
           <h3 className="text-headline-semibold text-text-primary">{title}</h3>
           {aside}
         </header>
       )}
-      <div className={pad ? "p-5" : ""}>{children}</div>
+      <div className={pad ? "p-6" : ""}>{children}</div>
     </section>
   );
 }

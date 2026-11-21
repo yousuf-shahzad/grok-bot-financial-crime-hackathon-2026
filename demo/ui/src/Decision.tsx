@@ -46,7 +46,7 @@ export default function DecisionCard({ detail, codes, court, picked, onChoose, o
     } catch (e) { toast("Not saved", (e as Error).message, false); } finally { setBusy(false); }
   };
 
-  const shell = "rounded-xl border border-separator-border bg-background-primary-default p-5";
+  const shell = "rounded-2xl border border-separator-border border-t-4 border-t-gold-500 bg-background-primary-default p-6";
   if (wf === "done") {
     const chk = [...detail.history].reverse().find((h) => h.action === "APPROVE");
     return <div className={shell}><p className="flex items-center gap-2 text-headline-semibold text-text-primary"><RiLockLine size={18} />Closed</p>

@@ -4,6 +4,51 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-:root { --font-inter: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+/* ---------------------------------------------------------------------------
+ * Tryll brand: the logo's deep navy drives BoardUI's accent ramp (selected rows,
+ * primary buttons, focus), and its gold is the highlight colour.
+ * --------------------------------------------------------------------------- */
+@theme {
+  --color-accent-50:  #eef1f8;
+  --color-accent-100: #d9dfee;
+  --color-accent-200: #b3bedd;
+  --color-accent-300: #8394c4;
+  --color-accent-400: #4f64a3;
+  --color-accent-500: #1d3270;
+  --color-accent-600: #0f1f55;
+  --color-accent-700: #0c1a47;
+  --color-accent-800: #0a1640;
+  --color-accent-900: #081230;
+  --color-accent-950: #050c20;
+
+  --color-gold-50:  #fef8e7;
+  --color-gold-100: #fcecc0;
+  --color-gold-200: #f8d985;
+  --color-gold-300: #f4c64f;
+  --color-gold-400: #efb42a;
+  --color-gold-500: #e9a400;
+  --color-gold-600: #c98a00;
+  --color-gold-700: #9c6a00;
+
+  --color-navy: #0b1a40;
+  --font-display: "DM Serif Display", Georgia, "Times New Roman", serif;
+}
+
+:root {
+  --font-inter: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-background-secondary-default: #f6f5f1;
+}
+.dark {
+  /* navy is too dark to read on a dark canvas: lift the accent for dark mode */
+  --color-accent-500: #4f6bc0;
+  --color-accent-600: #3b55a3;
+  --color-accent-400: #7a90d6;
+  --color-background-secondary-default: #0e1220;
+}
+
 html, body, #root { height: 100%; }
 body { font-family: var(--font-inter); background: var(--color-background-secondary-default); color: var(--color-text-primary); font-feature-settings: "tnum" 1; }
+
+/* Roomier BoardUI tables */
+.bui-table td { padding-top: 16px; padding-bottom: 16px; }
+.bui-table th { padding-top: 14px; padding-bottom: 14px; }

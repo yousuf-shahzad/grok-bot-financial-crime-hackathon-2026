@@ -35,6 +35,7 @@ function SignIn({ onDone }: { onDone: (r: Reviewer) => void }) {
   return (
     <Modal isOpen isDismissable={false} size="sm">
       <ModalDialog aria-label="Sign in">
+        <div className="flex justify-center px-6 pt-6"><img src="/tryll-logo.webp" alt="Tryll" className="h-20 w-auto" /></div>
         <ModalHeader title="Welcome to Tryll" description="Sign in with your name. Every decision is recorded under it, in a log that cannot be edited." showCloseButton={false} />
         <ModalBody>
           <div className="flex flex-col gap-4">
@@ -123,10 +124,10 @@ export default function App() {
           {selected ? (
             <CaseView key={selected + tick} hitId={selected} backLabel={current ? current.label : "Home"} onBack={() => setSelected(null)} onChanged={() => setTick((t) => t + 1)} />
           ) : current ? (
-            <div className="mx-auto flex max-w-6xl flex-col gap-5 px-8 py-8">
+            <div className="mx-auto flex max-w-6xl flex-col gap-7 px-10 py-10">
               <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
-                  <h1 className="text-title-1-semibold text-text-primary">{current.label}</h1>
+                  <h1 className="font-display text-[2.25rem] leading-tight text-navy dark:text-text-primary">{current.label}</h1>
                   <p className="mt-1 text-body-regular text-text-secondary">{current.hint}</p>
                 </div>
                 <div className="flex items-center gap-2">
