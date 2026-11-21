@@ -42,13 +42,13 @@ class NormaliseNamesTest(unittest.TestCase):
 class NormaliseCodesTest(unittest.TestCase):
     def test_iso2(self):
         self.assertEqual(N("FR"), "France")
-        self.assertEqual(N("de"), "Germany")
+        self.assertEqual(N("DE"), "Germany")
         self.assertEqual(N("GB"), "United Kingdom")
         self.assertEqual(N("NG"), "Nigeria")
 
     def test_iso3(self):
         self.assertEqual(N("FRA"), "France")
-        self.assertEqual(N("deu"), "Germany")
+        self.assertEqual(N("DEU"), "Germany")
         self.assertEqual(N("GBR"), "United Kingdom")
         self.assertEqual(N("USA"), "United States")
         self.assertEqual(N("U.S.A."), "United States")
@@ -70,6 +70,41 @@ class NormaliseNationalitiesTest(unittest.TestCase):
         self.assertEqual(N("Filipino"), "Philippines")
         self.assertEqual(N("Emirati"), "United Arab Emirates")
         self.assertEqual(N("american"), "United States")
+
+
+class CodesNeedCapitalsTest(unittest.TestCase):
+    def test_lowercase_short_words_are_not_codes(self):
+        for s in ["in", "and", "is", "to", "at", "it", "be", "no", "id", "gb", "us", "ind", "fra"]:
+            self.assertIsNone(N(s), s)
+
+    def test_mixed_case_short_words_are_not_codes(self):
+        for s in ["In", "And", "Is", "To", "Gb", "Usa"]:
+            self.assertIsNone(N(s), s)
+
+    def test_capitalised_codes_still_map(self):
+        self.assertEqual(N("GB"), "United Kingdom")
+        self.assertEqual(N("US"), "United States")
+        self.assertEqual(N("IND"), "India")
+        self.assertEqual(N("IN"), "India")
+        self.assertEqual(N("AND"), "Andorra")
+        self.assertEqual(N(" U.K. "), "United Kingdom")
+        self.assertEqual(N("U.S.A."), "United States")
+
+    def test_capital_id_is_ambiguous(self):
+        self.assertIsNone(N("ID"))
+        self.assertEqual(N("IDN"), "Indonesia")
+        self.assertEqual(N("Indonesia"), "Indonesia")
+        self.assertEqual(N("indonesian"), "Indonesia")
+
+    def test_names_unaffected_by_case(self):
+        self.assertEqual(N("india"), "India")
+        self.assertEqual(N("andorra"), "Andorra")
+        self.assertEqual(N("PERU"), "Peru")
+        self.assertEqual(N("united states"), "United States")
+
+    def test_from_address_lowercase_word(self):
+        self.assertIsNone(countries.from_address("Flat 2, Kestrel House, in"))
+        self.assertEqual(countries.from_address("Flat 2, Kestrel House, GB"), "United Kingdom")
 
 
 class TerritoriesTest(unittest.TestCase):
