@@ -142,6 +142,21 @@ def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], scr
             "screen_failed" if screen is None else "error_in_%s_review" % error_in)
 
 
+def resolve(det: Decision, llm_view: Optional[dict], case: dict) -> tuple:
+    """The lead's single-hit contract: (final Decision, trace). Makes the screening call only on a
+    disagreement; any screener failure resolves to REVIEW (never a crash, never a clearance)."""
+    screen = None
+    if llm_view is not None and llm_view.get("decision") != det.decision:
+        try:
+            screen = _screen(case, det, llm_view)
+        except Exception:  # noqa: BLE001
+            screen = None
+    final, path = resolve_one(det, llm_view, screen)
+    return final, {"deterministic": {"decision": det.decision, "reason_code": det.reason_code},
+                   "llm": llm_view, "screener": screen,
+                   "final": {"decision": final.decision, "reason_code": final.reason_code}, "path": path}
+
+
 def review_all(items: list, data, log=None) -> Dict[str, Decision]:
     log = log or (lambda m: None)
     if not items or not llm.available():

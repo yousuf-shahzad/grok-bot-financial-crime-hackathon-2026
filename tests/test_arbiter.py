@@ -141,6 +141,32 @@ class ReviewAll(unittest.TestCase):
         self.assertEqual(arbiter.trace("H-T1")["path"], "llm_unavailable")
 
 
+class ResolveContract(unittest.TestCase):
+    """arbiter.resolve(det, llm, case) -> (Decision, trace), the lead's single-hit contract."""
+    def setUp(self):
+        self._a = arbiter.llm
+
+    def tearDown(self):
+        arbiter.llm = self._a
+
+    def test_agree_no_screen_call(self):
+        arbiter.llm = StubLLM(None, None)
+        d = det()
+        final, tr = arbiter.resolve(d, view(DIFF, "DOB_MISMATCH"), {"allowed_ids": []})
+        self.assertIs(final, d)
+        self.assertEqual(arbiter.llm.calls, [])
+        self.assertEqual(set(tr), {"deterministic", "llm", "screener", "final", "path"})
+
+    def test_screener_exception_goes_to_review(self):
+        class Boom(StubLLM):
+            def ask_json(self, *a, **k):
+                raise RuntimeError("down")
+        arbiter.llm = Boom(None, None)
+        final, tr = arbiter.resolve(det(), view(SAME, "NAME_DOB_MATCH"), {"allowed_ids": []})
+        self.assertEqual((final.decision, final.reason_code), (REVIEW, "INSUFFICIENT_DATA"))
+        self.assertIsNone(tr["screener"])
+
+
 class MainGuard(unittest.TestCase):
     def test_guard_blocks_new_clearances_and_bad_codes(self):
         same, rev, clr = det(SAME, "NAME_DOB_MATCH"), det(REVIEW, "INSUFFICIENT_DATA"), det()
