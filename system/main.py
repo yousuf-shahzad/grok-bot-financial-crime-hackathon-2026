@@ -73,9 +73,18 @@ def _arbiter_ok(old: Decision, new) -> bool:
     return True
 
 
+def dual_mode() -> str:
+    """DUAL_MODE: 'advisory' (default) computes the dual path's trace for the GUI but never changes an
+    output line; 'enforce' applies its (guarded) changes; 'off' skips it entirely."""
+    m = str(os.environ.get("DUAL_MODE") or "advisory").strip().lower()
+    return m if m in ("advisory", "enforce", "off") else "advisory"
+
+
 def arbitrate_all(decisions: list, items: list, data) -> dict:
-    """{hit_id: Decision} from the dual path, guarded; {} on any failure or without the module/key."""
-    if arbiter is None or not items:
+    """{hit_id: Decision} from the dual path, guarded; {} on any failure, without the module/key,
+    or unless DUAL_MODE=enforce."""
+    mode = dual_mode()
+    if arbiter is None or not items or mode == "off":
         return {}
     by_id = {d.hit_id: d for d in decisions}
     current = [(by_id.get(d.hit_id, d),) + tuple(rest) for d, *rest in items]
@@ -91,6 +100,10 @@ def arbitrate_all(decisions: list, items: list, data) -> dict:
             out[hid] = got[hid]
         elif old is not None:
             log("main: arbiter change for %s ignored (it would create a clearance or is malformed)" % hid)
+    if mode != "enforce":
+        if out:
+            log("main: DUAL_MODE=advisory: %d dual-path change(s) traced, none applied" % len(out))
+        return {}
     return out
 
 
