@@ -1,73 +1,133 @@
-# Hackathon team repo
+<div align="center">
 
-## Team onboarding (start here)
+<img src="demo/ui/public/tryll-logo.webp" alt="Tryll" width="180">
 
-1. Install `git`, `bash` (Git Bash on Windows) and the [GitHub CLI](https://cli.github.com), then run `gh auth login`.
-2. Clone this repo, then run `tools/board whoami`. It should print your GitHub login.
-3. Open your coding agent in the repo. Claude Code, Codex, Cursor, Copilot, Gemini CLI and others read `AGENTS.md` (`CLAUDE.md` and `GEMINI.md` just point at it). Claude Code also runs the board hooks in `.claude/`.
-4. The board is the pinned issue titled "Message Board" (issue #1).
-5. Not sure about any step? Tell your agent "set me up per AGENTS.md section 5" and it will walk you through it.
+# Tryll
 
-The rest of this file is the original board template this setup came from.
+**Is my customer the person on the sanctions list? Tryll decides, cites its evidence, and lets a human sign it off.**
+
+![Python 3 standard library](https://img.shields.io/badge/python-3%20stdlib%20only-0f1f55)
+![Deterministic](https://img.shields.io/badge/runs-byte--identical-0f1f55)
+![Practice labels](https://img.shields.io/badge/practice-50%2F50%2C%200%20unsafe-e9a400)
+![Grok](https://img.shields.io/badge/Grok-can%20only%20add%20caution-e9a400)
+
+[**Live demo**](https://tryll-demo.onrender.com) · [How it works](#how-it-works) · [Results](#results) · [Run it](#run-it) · [Engine deep-dive](system/README.md)
+
+<sub>Grok Bot London Financial Crime Hackathon 2026 · Track 2: "Is my customer sanctioned?"</sub>
+
+</div>
 
 ---
 
-# Hackathon agent board
+<p align="center"><img src="docs/img/tryll-case.jpg" alt="Tryll case review: a sanctions hit cleared on a date-of-birth mismatch, with the rules engine, the Grok judge and the recommendation side by side" width="820"></p>
+<p align="center"><sub>An invented case on the live demo: same name, same country, but the passport check gives a different date of birth, so Tryll clears it and cites the check.</sub></p>
 
-![The hacking floor at Cal Hacks](docs/banner.jpg)
+## The problem
 
-One pinned GitHub issue that every teammate's coding agent posts to. Agents tag each other by GitHub username, and each one waits for its own tag, so my agent can hand work to my teammate's agent without either of us sending a text.
+Screening tools flag every customer whose name looks like a name on a sanctions or PEP list. Almost all of these hits are false positives, and an analyst has to check each one by hand. Getting it wrong is lopsided: **clearing a real match costs 60 points; a needless review costs 2 to 3.** So the job is not "guess well". It is "clear only when you can prove it, and say why".
 
-Full walkthrough with the templates and an FAQ: **[marvelous-relative-5de.notion.site/hack](https://marvelous-relative-5de.notion.site/hack)**
+## What Tryll does
+
+For every hit, Tryll gives one of three answers, a reason code from the bank's SOP, the customer record it means, a 2 to 4 sentence reason, and the IDs of exactly the records that decided it.
+
+| Answer | When | Example reason codes |
+|---|---|---|
+| 🟢 **Clear** (`DIFFERENT_ENTITY`) | A fact the SOP names **contradicts** the hit | `DOB_MISMATCH`, `DECEASED`, `TEMPORAL_IMPOSSIBILITY`, `NAME_MISMATCH_VERIFIED`, `LOCATION_MISMATCH`, `ENTITY_TYPE_MISMATCH` |
+| 🔴 **Match** (`SAME_ENTITY`) | Name and date of birth **agree** (name and country for a company) | `NAME_DOB_MATCH`, `NAME_DOB_LOCATION_MATCH`, `NAME_LOCATION_MATCH` |
+| 🟡 **Review** (`REVIEW`) | Anything else: a missing field is unknown, never a mismatch | `INSUFFICIENT_DATA`, `AMBIGUOUS_CUSTOMER_RECORD` |
 
 ## How it works
 
 ```mermaid
-sequenceDiagram
-    participant A as Sam's agent
-    participant B as Board (pinned issue)
-    participant C as Priya's agent
-    A->>B: [Sam's Claude] login page is merged, @priya-dev can you add the API route?
-    Note over C: tools/board wait wakes up on the @priya-dev tag
-    B->>C: new post, flagged MENTION
-    C->>B: [Priya's Codex] @sam-dev the route is up on main
+flowchart LR
+    A[Alerts and hits] --> R[Resolve the customer<br/>link or search, merge records,<br/>verified ID checks win]
+    C[Customers, accounts,<br/>KYC checks, notes] --> R
+    R --> J[Rules engine<br/>one rule per SOP line]
+    H[Watchlist profile<br/>and search results] --> J
+    J --> X[Cross-examiner<br/>Grok re-reads the text<br/>behind each clearance]
+    J --> G[Grok judge<br/>independent decision]
+    G --> S[Screening agent<br/>who made the error?]
+    X --> O[One JSON line per hit<br/>decision, reason, evidence IDs]
+    S --> O
+    O --> UI[Case review app<br/>human decides, second<br/>reviewer approves]
 ```
 
-1. Split the project up at kickoff and give each person their own folders. The owner table in `AGENTS.md` says whose folders are whose, and every agent reads it.
-2. Pin one issue as the board. Every agent posts there when it finishes something or needs something.
-3. Tag the teammate. Each agent keeps `tools/board wait` running, which wakes it up when someone else posts and flags the post when it tags you.
+1. **Find the customer.** Follow the alert's link, or search for records that fit every screened detail. Records merge into one person only on what the SOP allows: the same phone **and** full date of birth, or the same document number on an approved ID check. The latest approved check gives the verified name and date of birth; rejected and expired checks are ignored.
+2. **Read the watchlist entry.** Dates of birth come from the profile, from "aged N in <date>" phrases, or from search results that describe the same listing. Countries are normalised; dated reports are kept for age checks.
+3. **Apply the rules.** The first rule that fires wins, and a contradiction fires only when it is certain. One agreeing date of birth blocks a date clearance. A country difference never clears a hit whose name and date of birth agree.
+4. **Let Grok look for mistakes, with a one-way valve.** A cross-examiner re-reads the free text behind every clearance and can only send it back to review. A separate Grok judge decides every hit on its own; if it disagrees, a screening agent must cite a record that proves the rules wrong. **Grok can never create a clearance.** With no API key, the output is exactly the rules'.
+5. **Hand it to a person.** The case review app shows customer and watchlist side by side, and every decision needs a second reviewer.
 
-## Used at
+The full engine write-up, with three worked cases, is in **[system/README.md](system/README.md)**.
 
-My teams ran this at two hackathons, and both boards are public if you want to scroll through them.
+## Safety by design
 
-- **Knight Hacks**, UCF's hackathon. The [Farsight board](https://github.com/azizu06/farsight/issues/24) hit 1,182 posts, and Farsight won four sponsor tracks.
-- **Cal Hacks**, UC Berkeley's hackathon. The [Backrooms board](https://github.com/azizu06/backrooms/issues/1) hit 988 posts, and Backrooms won a Hyphenate track prize.
+- 🔒 **Clear only on a named contradiction.** Unknown stays unknown.
+- 🧾 **Every line cites its sources.** Each fact carries the ID of the record it came from (`CUS-`, `KYC-`, `NOTE-`, `SR-`).
+- ↘️ **The model can only add caution.** Enforced twice in code, not just in the prompt.
+- 🔁 **Deterministic.** Sorted iteration, no clock, temperature 0, cached calls. Repeated runs, with or without a key, are byte-identical.
+- 👥 **Four eyes.** The person who decides can't approve their own decision (checked by the server), and 1 in 10 of the engine's clearances is pulled into a QA sample for a human to re-check.
+- 📜 **Append-only audit.** The review database refuses edits and deletes at the database level.
 
-## Setup in 5 minutes
+## Results
 
-1. Click **Use this template** to make your hackathon repo from this one.
-2. Open a new issue from the **Message board** template and pin it. If it's the first issue in the repo it's #1 and you can skip the next step.
-3. If it isn't issue #1, every teammate sets `export BOARD_ISSUE=<number>`.
-4. Fill in your team's GitHub logins and the owner table in `AGENTS.md`.
-5. Every teammate runs `gh auth login` once, then `tools/board whoami` to check it works.
+On the 50 labelled practice hits, scored with the brief's cost matrix by [`tools/score.py`](tools/score.py):
 
-## Commands
-
-| Command | What it does |
+| | |
 |---|---|
-| `tools/board post "[Sam's Claude] ..."` | Posts to the board. Every post starts with whose agent it is. |
-| `tools/board unread` | Shows posts since your last check and flags the ones that tag you. |
-| `tools/board wait` | Blocks until someone else posts, then prints it. |
-| `tools/board read -n 20` | Shows the last 20 posts. |
-| `tools/board whoami` | Prints your GitHub login so you can check `gh` is set up. |
+| Decisions right | **50 / 50** (cost 0, against 108 for "review everything") |
+| Unsafe clearances | **0** |
+| Reason code and customer record right | 50 / 50 and 50 / 50 |
+| Evidence precision / recall | 99% / 97% |
 
-`tools/board wait` checks once every 30 seconds, and when nothing is new that check is one API call, so a whole team stays well under GitHub's rate limit. Use `--interval 60` if a lot of agents share one account.
+On the full dev set of 819 hits: **447 cleared, 124 matched, 248 sent to review**, in under 40 seconds on a laptop with rules only (the limit is 30 minutes). With Grok switched on, the Grok judge agreed with the rules on 750 of 819 hits (91.6%). In all 69 disagreements the screening agent found the error on Grok's side, so the output stayed byte-identical.
 
-## Works with any coding agent
+Beyond the labels, we stress-tested for the unseen set: reworded notes and profiles, partial dates, joint accounts, dead listings, conflicting ID checks and a blindfold run with the note parser switched off (5 unsafe clearances on rules alone, 0 with the cross-examiner).
 
-The script only needs `bash` and `gh`, so any agent that can run a shell command can use it. Claude Code also gets the hooks in `.claude/`, which show unread posts when a session starts and on every prompt, and `CLAUDE.md` pulls in the rules from `AGENTS.md`. Every other agent reads `AGENTS.md` and runs `tools/board unread` before each task.
+## Run it
 
-## Requirements
+Python 3.8+ and nothing else. No packages to install.
 
-`bash`, `git`, and the [GitHub CLI](https://cli.github.com) logged in with `gh auth login`.
+```bash
+# Decide every hit in a data folder
+system/run <data folder> output/dev.jsonl
+
+# Optional: add Grok (xAI or OpenRouter); without a key it is rules only
+export XAI_API_KEY=...            # or OPENROUTER_API_KEY=...
+DUAL_MODE=advisory system/run <data folder> out.jsonl   # one-line switch back to rules-only output
+
+# Case review app on the invented demo data, then open http://127.0.0.1:8765
+python3 demo/app.py tests/fixtures/rare
+
+# Tests
+python3 -m unittest discover -s tests
+```
+
+The competition dataset is for event participants only, so it is not in this repo. The demo and every example here use invented people from [`tests/fixtures/rare/`](tests/fixtures/rare).
+
+## The case review app
+
+A React app (BoardUI, Tailwind) served by a standard-library Python server, and hosted at **[tryll-demo.onrender.com](https://tryll-demo.onrender.com)** (free tier: give it a few seconds to wake up).
+
+- **Work queues:** To decide, To approve, QA sample, Cleared by Tryll, Escalated, Closed.
+- **Side-by-side evidence:** customer against watchlist, field by field, with every record one click away. When several customers fit an alert, each is shown with the answer it would get on its own.
+- **Rules, Grok and recommendation** shown next to each other, so the analyst sees who said what.
+- **AI court (optional):** a prosecution, a defence and an adjudicator argue the case with cited evidence. The human still decides.
+- **Blind review** hides the engine's answer, a case report export, management information and an audit history per case.
+
+## Repo map
+
+| Path | What |
+|---|---|
+| [`system/`](system/) | The submission: `system/run`, the engine in `system/engine/`, [architecture write-up](system/README.md) |
+| [`output/dev.jsonl`](output/dev.jsonl) | Our decisions on the dev set, generated by `system/run` |
+| [`demo/`](demo/) | Case review app: `demo/app.py` server, `demo/ui/` React front end |
+| [`tests/`](tests/) | Unit and end-to-end tests, plus the invented fixture folder |
+| [`tools/`](tools/) | Scorer, stress tests, data converter, team board |
+| [`docs/track2/`](docs/track2/) | Brief, SOP summary, scope, plan, pitch |
+
+## How we built it
+
+Four people and their coding agents (Claude Code and Grok) in one day. Every agent read the same rules in [`AGENTS.md`](AGENTS.md) and coordinated on a single pinned GitHub issue used as a message board, tagging each other by GitHub login to hand work over. The board tooling (`tools/board`) comes from the open [house-of-cards](https://github.com/yousuf-shahzad/house-of-cards) template.
+
+**Team:** Yousuf ([@yousuf-shahzad](https://github.com/yousuf-shahzad), lead) · Thomas ([@ThomasGrattoniMay](https://github.com/ThomasGrattoniMay)) · Kendrick ([@kendricklow2008](https://github.com/kendricklow2008)) · Averneesh ([@DiamondNexus](https://github.com/DiamondNexus))

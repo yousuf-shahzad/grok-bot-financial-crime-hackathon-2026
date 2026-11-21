@@ -148,7 +148,7 @@ How we got there: every country tied to the customer differs from every country 
 | Reason code accepted, `customer_record_id` right | 50 / 50, 50 / 50 |
 | Evidence precision / recall | 99% / 96% |
 
-Dev set decision mix (819 hits): 447 `DIFFERENT_ENTITY`, 123 `SAME_ENTITY`, 249 `REVIEW`. Every run is byte-identical.
+Dev set decision mix (819 hits): 447 `DIFFERENT_ENTITY`, 124 `SAME_ENTITY`, 248 `REVIEW`. Every run is byte-identical.
 
 Checks beyond the 50 labels, because the unseen set has new customers, reworded text and rare SOP cases:
 - **Clearance audit** over all dev clears: no hit is cleared where name **and** date of birth agree, except `NAME_MISMATCH_VERIFIED`, where the SOP says the verified legal name wins. Clears that rest on a verified name the customer did not type were checked by hand against the KYC rows and notes.
