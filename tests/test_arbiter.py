@@ -153,12 +153,14 @@ class ReviewAll(unittest.TestCase):
     def test_disagreement_screened_and_traced(self):
         st = self.stub(view(SAME, "NAME_DOB_MATCH", ["CUS-T1", "KYC-INVENTED"]), screen("deterministic"))
         out = arbiter.review_all([item(det())], None)
-        self.assertEqual(out["H-T1"].decision, SAME)
+        self.assertEqual(out["H-T1"].decision, DIFF)
         self.assertEqual(st.calls, ["llm_judge", "screening_agent"])
         t = arbiter.trace("H-T1")
-        self.assertEqual(t["path"], "error_in_rules_take_llm")
+        # The only cited id is already in the rules' evidence, so the rules line stands.
+        self.assertEqual(t["path"], "error_in_llm_keep_rules")
+        self.assertEqual(t["guard"], "no_new_cited_record")
         self.assertEqual(t["llm"]["evidence_ids"], ["CUS-T1"])  # invented ID dropped
-        self.assertEqual(t["final"], {"decision": SAME, "reason_code": "NAME_DOB_MATCH"})
+        self.assertEqual(t["final"]["decision"], DIFF)
 
     def test_review_all_drops_ids_the_case_did_not_supply(self):
         d = det()
@@ -261,9 +263,10 @@ class ContractGaps(unittest.TestCase):
         pairs = [
             ("llm", DIFF, "LOCATION_MISMATCH", SAME, "NAME_DOB_MATCH", DIFF, "LOCATION_MISMATCH"),
             ("llm", REVIEW, "INSUFFICIENT_DATA", DIFF, "DOB_MISMATCH", REVIEW, "INSUFFICIENT_DATA"),
-            ("deterministic", DIFF, "DOB_MISMATCH", SAME, "NAME_DOB_MATCH", SAME, "NAME_DOB_MATCH"),
-            ("deterministic", SAME, "NAME_DOB_MATCH", REVIEW, "AMBIGUOUS_CUSTOMER_RECORD", REVIEW, "AMBIGUOUS_CUSTOMER_RECORD"),
-            ("deterministic", SAME, "NAME_LOCATION_MATCH", DIFF, "DECEASED", REVIEW, "INSUFFICIENT_DATA"),
+            # CUS-T1 is already in the rules' evidence, so blaming the rules does not overrule them.
+            ("deterministic", DIFF, "DOB_MISMATCH", SAME, "NAME_DOB_MATCH", DIFF, "DOB_MISMATCH"),
+            ("deterministic", SAME, "NAME_DOB_MATCH", REVIEW, "AMBIGUOUS_CUSTOMER_RECORD", SAME, "NAME_DOB_MATCH"),
+            ("deterministic", SAME, "NAME_LOCATION_MATCH", DIFF, "DECEASED", SAME, "NAME_LOCATION_MATCH"),
             ("neither", DIFF, "DECEASED", SAME, "NAME_DOB_MATCH", REVIEW, "INSUFFICIENT_DATA"),
             ("both", REVIEW, "INSUFFICIENT_DATA", SAME, "NAME_DOB_LOCATION_MATCH", REVIEW, "INSUFFICIENT_DATA"),
         ]
@@ -279,7 +282,13 @@ class ContractGaps(unittest.TestCase):
 
     def test_llm_diff_becomes_review(self):
         self._stub({"error_in": "deterministic", "significant_missed_facts": CITED, "explanation": "Rules missed it."})
-        final, _ = arbiter.resolve(det(SAME, "NAME_DOB_MATCH"), view(DIFF, "DOB_MISMATCH"), self.case("CUS-T1"))
+        final, tr = arbiter.resolve(det(SAME, "NAME_DOB_MATCH"), view(DIFF, "DOB_MISMATCH"), self.case("CUS-T1"))
+        self.assertEqual((final.decision, final.reason_code), (SAME, "NAME_DOB_MATCH"))
+        self.assertEqual(tr["guard"], "no_new_cited_record")
+        self._stub({"error_in": "deterministic", "significant_missed_facts": [
+            {"fact": "a note", "evidence_ids": ["NOTE-T9"]}], "explanation": "A new note."})
+        final, _ = arbiter.resolve(det(SAME, "NAME_DOB_MATCH"), view(DIFF, "DOB_MISMATCH"),
+                                   self.case("CUS-T1", "NOTE-T9"))
         self.assertEqual((final.decision, final.reason_code), (REVIEW, "INSUFFICIENT_DATA"))
         # with no supplied record cited, the rules' SAME stands (still never a clearance)
         final, _ = arbiter.resolve(det(SAME, "NAME_DOB_MATCH"), view(DIFF, "DOB_MISMATCH"), self.case())
@@ -356,6 +365,115 @@ class ContractGaps(unittest.TestCase):
             self.assertEqual(main.arbitrate_all([d], [item(d)], None), {})
         finally:
             os.environ.pop("LLM_DISABLE", None)
+
+
+def _fact(value, source, kind=""):
+    return {"value": value, "source": source, "kind": kind}
+
+
+def person_case(entity="Individual", verified="ADA EXAMPLE", hit_name="Ada Example", dob=True, country=True):
+    """Invented customer and hit. dob/country can be turned off to test the SAME guard."""
+    person = {
+        "person_id": "CUS-T1", "record_ids": ["CUS-T1"], "entity_type": entity,
+        "names": [_fact(hit_name, "CUS-T1", "full_name")],
+        "verified_name": _fact(verified, "KYC-T1", "verified_name") if verified else None,
+        "dobs": [],
+        "verified_dob": _fact("1970-03-12", "KYC-T1", "verified_dob") if dob else None,
+        "countries": [_fact("Freedonia", "CUS-T1", "residence")] if country else [],
+    }
+    hit = {
+        "hit_id": "H-T1", "entity_type": entity,
+        "names": [_fact(hit_name, "H-T1", "listed")],
+        "births": [{"years": [1970], "month": 3, "day": 12, "source": "H-T1"}] if dob else [],
+        "countries": [_fact("Freedonia", "H-T1", "country")] if country else [],
+    }
+    return {"allowed_ids": ["CUS-T1", "NOTE-T9", "KYC-T1", "H-T1", "A-T1"],
+            "alert_id": "A-T1", "screened": {}, "hit": hit, "customers": [person], "note": ""}
+
+
+class GuardRules(unittest.TestCase):
+    """Stubbed screener. A deterministic blame needs a new supplied id; SAME needs the matchers."""
+
+    def setUp(self):
+        self._llm = arbiter.llm
+        self.calls = []
+
+    def tearDown(self):
+        arbiter.llm = self._llm
+
+    def stub(self, missed):
+        calls = self.calls
+
+        class Stub:
+            STATS = {}
+
+            def available(self):
+                return True
+
+            def ask_json(self, system, user, schema, name="answer", timeout=45.0):
+                calls.append(name)
+                return {"error_in": "deterministic", "explanation": "A supplied note was missed.",
+                        "significant_missed_facts": [{"fact": "a note", "evidence_ids": list(missed)}]}
+
+        arbiter.llm = Stub()
+
+    def test_prompt_states_the_four_rules(self):
+        text = arbiter.SCREEN_PROMPT
+        self.assertIn("case['rules']", text)
+        self.assertIn("location_exception_applies", text)
+        self.assertIn("name AND the date of birth BOTH agree", text)
+        self.assertIn("unknown on either side", text)
+        self.assertIn("For a company: name AND country", text)
+        self.assertIn("UNKNOWN IS NEVER AGREEMENT", text)
+        self.assertIn("table stands unless a cited supplied record", text)
+
+    def test_uncited_already_cited_and_newly_cited(self):
+        rules = det()
+        agreed = person_case()
+        self.stub(())
+        final, tr = arbiter.resolve(rules, view(REVIEW, "INSUFFICIENT_DATA"), agreed)
+        self.assertEqual(final.decision, DIFF)
+        self.assertEqual(tr["guard"], "no_new_cited_record")
+        self.calls.clear()
+        self.stub(("CUS-T1",))
+        final, tr = arbiter.resolve(rules, view(REVIEW, "INSUFFICIENT_DATA"), agreed)
+        self.assertEqual(final.decision, DIFF)
+        self.assertEqual(tr["guard"], "no_new_cited_record")
+        self.calls.clear()
+        self.stub(("H-T1", "ACC-T1", "KYC-MADE-UP"))
+        final, tr = arbiter.resolve(rules, view(REVIEW, "INSUFFICIENT_DATA"), agreed)
+        self.assertEqual(final.decision, DIFF)
+        self.assertEqual(tr["guard"], "no_new_cited_record")
+        self.calls.clear()
+        self.stub(("NOTE-T9",))
+        final, tr = arbiter.resolve(rules, view(REVIEW, "INSUFFICIENT_DATA"), agreed)
+        self.assertEqual((final.decision, final.reason_code), (REVIEW, "INSUFFICIENT_DATA"))
+        self.assertNotIn("guard", tr)
+
+    def test_same_needs_name_and_dob_for_a_person(self):
+        self.stub(("NOTE-T9",))
+        final, tr = arbiter.resolve(det(), view(SAME, "NAME_DOB_MATCH"), person_case(dob=False))
+        self.assertEqual(final.decision, DIFF)
+        self.assertEqual(tr["guard"], "same_without_name_and_dob")
+        final, tr = arbiter.resolve(det(), view(SAME, "NAME_DOB_MATCH"), person_case())
+        self.assertEqual((final.decision, final.reason_code), (SAME, "NAME_DOB_MATCH"))
+        self.assertNotIn("guard", tr)
+        one = person_case(verified="ADA", hit_name="Ada")
+        final, tr = arbiter.resolve(det(), view(SAME, "NAME_DOB_MATCH"), one)
+        self.assertEqual(final.decision, DIFF)
+        self.assertEqual(tr["guard"], "same_without_name_and_dob")
+
+    def test_company_same_needs_name_and_country(self):
+        self.stub(("NOTE-T9",))
+        final, tr = arbiter.resolve(det(), view(SAME, "NAME_LOCATION_MATCH"),
+                                    person_case(entity="Company", verified=None, hit_name="Acme Widgets",
+                                                dob=False, country=False))
+        self.assertEqual(final.decision, DIFF)
+        self.assertEqual(tr["guard"], "same_without_name_and_dob")
+        final, tr = arbiter.resolve(det(), view(SAME, "NAME_LOCATION_MATCH"),
+                                    person_case(entity="Company", verified=None, hit_name="Acme Widgets", dob=False))
+        self.assertEqual((final.decision, final.reason_code), (SAME, "NAME_LOCATION_MATCH"))
+        self.assertNotIn("guard", tr)
 
 
 if __name__ == "__main__":

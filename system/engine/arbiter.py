@@ -63,18 +63,23 @@ SCREEN_PROMPT = (
     "evidence does not settle it) or 'both'. List significant facts a reviewer missed, each with the IDs "
     "of the records that show it, copied exactly; never invent an ID or a fact. explanation: at most two "
     "short sentences.\n\n"
-    "The input 'rules' holds the rules engine's decision and its comparison table ('checks': name, "
-    "date_of_birth, country with agree / contradict / unknown / neither, and location_exception_applies). "
-    "Treat that table as correct. You may answer 'deterministic', 'neither' or 'both' ONLY if a supplied "
-    "record shows a fact the table missed or got wrong, and you MUST list that record's ID in "
+    "The input 'rules' is case['rules']: the rules engine's decision plus a per-person comparison table "
+    "('checks': name, date_of_birth, country with agree / contradict / unknown / neither, and "
+    "location_exception_applies). You may answer 'deterministic', 'neither' or 'both' ONLY if a supplied "
+    "record shows a fact that table missed or got wrong, and you MUST list that record's ID in "
     "significant_missed_facts; otherwise answer 'llm'.\n"
     "RULES THE LLM REVIEWER OFTEN MISAPPLIES, follow them exactly:\n"
-    "1. LOCATION: if every customer country differs from every hit country, the hit IS cleared "
-    "(LOCATION_MISMATCH). The ONLY exception is when the name AND the date of birth BOTH agree; an unknown "
-    "date of birth on either side means the exception does NOT apply.\n"
-    "2. SAME_ENTITY for a person needs the name AND the date of birth to agree; name alone, or name and "
-    "country, is not enough. A company needs name AND country.\n"
-    "3. UNKNOWN IS NEVER AGREEMENT, and never a contradiction by itself.\n\nSOP:\n" + SOP)
+    "1. LOCATION: if every country tied to the customer differs from every country tied to the hit, the hit "
+    "IS cleared (DIFFERENT_ENTITY / LOCATION_MISMATCH). The ONLY exception is when the name AND the date of "
+    "birth BOTH agree. If the date of birth is unknown on either side, or does not agree, the exception does "
+    "NOT apply and the country difference clears the hit.\n"
+    "2. SAME_ENTITY for a person needs the name AND the date of birth to agree (birth year is one of the "
+    "hit's possible years and every part both give is equal). Name alone, or name and country, is NOT "
+    "enough. For a company: name AND country. Otherwise the answer is REVIEW.\n"
+    "3. UNKNOWN IS NEVER AGREEMENT and never a contradiction: a missing date of birth or country cannot "
+    "support SAME_ENTITY, and cannot by itself support DIFFERENT_ENTITY.\n"
+    "4. The 'rules' table stands unless a cited supplied record disproves it. To say the error is in the "
+    "rules you must list that record's ID in significant_missed_facts.\n\nSOP:\n" + SOP)
 
 
 def _bump(key: str) -> None:
@@ -191,8 +196,132 @@ def _guard(final: Decision, det: Decision) -> Decision:
     return final
 
 
+def _missed_ids(screen) -> List[str]:
+    out = []
+    for fact in (screen or {}).get("significant_missed_facts") or []:
+        if isinstance(fact, dict):
+            out.extend(fact.get("evidence_ids") or [])
+    return out
+
+
+def _has_new_citation(missed, allowed_ids, evidence) -> bool:
+    """True when this call is not applying the citation gate, or a new supplied id is cited.
+
+    A supplied allow-list makes 'deterministic' count only for an id that is on that list,
+    is not an H- or ACC- id, and is not already among the rules' evidence.
+    """
+    if allowed_ids is None:
+        return True
+    allowed = {str(i) for i in allowed_ids}
+    already = {str(i) for i in (evidence or [])}
+    for raw in missed or []:
+        item = str(raw or "").strip()
+        if not item or item.startswith(NO_CITE) or item in already or item not in allowed:
+            continue
+        return True
+    return False
+
+
+def _parse_partial(value):
+    from .model import PartialDate
+    if isinstance(value, PartialDate):
+        return value
+    text = str(value or "")
+    match = re.fullmatch(r"(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?", text)
+    if not match:
+        return None
+    year, month, day = match.groups()
+    return PartialDate(int(year), int(month) if month else None, int(day) if day else None)
+
+
+def _as_fact(raw):
+    from .model import Fact
+    if not isinstance(raw, dict) or raw.get("value") in (None, ""):
+        return None
+    value = raw.get("value")
+    parsed = _parse_partial(value)
+    if parsed is not None:
+        value = parsed
+    return Fact(value=value, source=str(raw.get("source") or ""), kind=str(raw.get("kind") or ""))
+
+
+def _same_supported(case) -> bool:
+    """True when the matchers, not the model, support SAME_ENTITY.
+
+    A person needs judge.name_match and dates.birth_agrees. A verified name with fewer
+    than two real parts cannot confirm. A company needs that name match and a shared country.
+    """
+    if not isinstance(case, dict):
+        return False
+    hit = case.get("hit") if isinstance(case.get("hit"), dict) else {}
+    customers = case.get("customers") if isinstance(case.get("customers"), list) else []
+    if not hit or not customers:
+        return False
+    from . import judge
+    from .model import BirthClaim, HitProfile, Person
+    births = []
+    for raw in hit.get("births") or []:
+        if isinstance(raw, dict) and raw.get("years"):
+            births.append(BirthClaim(years=tuple(int(y) for y in raw["years"]),
+                                     month=raw.get("month"), day=raw.get("day"),
+                                     source=str(raw.get("source") or "")))
+    profile = HitProfile(
+        hit_id=str(hit.get("hit_id") or ""), alert_id=str(case.get("alert_id") or ""),
+        entity_type=str(hit.get("entity_type") or ""),
+        names=[f for f in (_as_fact(n) for n in hit.get("names") or []) if f],
+        births=births,
+        countries=[f for f in (_as_fact(c) for c in hit.get("countries") or []) if f],
+        incorporated=_as_fact(hit.get("incorporated")))
+    for raw in customers:
+        if not isinstance(raw, dict):
+            continue
+        person = Person(
+            person_id=str(raw.get("person_id") or ""), record_ids=list(raw.get("record_ids") or []),
+            entity_type=str(raw.get("entity_type") or ""),
+            names=[f for f in (_as_fact(n) for n in raw.get("names") or []) if f],
+            verified_name=_as_fact(raw.get("verified_name")),
+            dobs=[f for f in (_as_fact(n) for n in raw.get("dobs") or []) if f],
+            verified_dob=_as_fact(raw.get("verified_dob")),
+            countries=[f for f in (_as_fact(c) for c in raw.get("countries") or []) if f])
+        company = judge._is_company(profile.entity_type) or judge._is_company(person.entity_type)
+        if company and not judge._is_company(profile.entity_type):
+            profile = replace(profile, entity_type=person.entity_type)
+        matched, _hit_name = judge.name_match(profile, person)
+        if matched is None:
+            continue
+        verified = person.verified_name
+        if verified is not None and judge.names and judge.names.real_part_count(str(verified.value), company) < 2:
+            continue
+        if company:
+            cust = {str(f.value).strip().lower() for f in person.countries if str(f.value or "").strip()}
+            listed = {str(f.value).strip().lower() for f in profile.countries if str(f.value or "").strip()}
+            if cust and listed and cust & listed:
+                return True
+            continue
+        if judge.dates is None:
+            continue
+        if any(judge.dates.birth_agrees(f.value, claim) for f in judge._cust_dobs(person)
+               for claim in judge._hit_births(profile)):
+            return True
+    return False
+
+
+def _guard_label(screen, allowed_ids, det, view, case, path):
+    """Why a deterministic blame was kept as the rules' line, if it was."""
+    if path != "error_in_llm_keep_rules" or not isinstance(screen, dict):
+        return None
+    if screen.get("error_in") != "deterministic":
+        return None
+    if allowed_ids is not None and not _has_new_citation(_missed_ids(screen), allowed_ids, det.evidence):
+        return "no_new_cited_record"
+    if (isinstance(view, dict) and view.get("decision") == SAME and det.decision != SAME
+            and case is not None and not _same_supported(case)):
+        return "same_without_name_and_dob"
+    return None
+
+
 def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], screen_failed: bool = False,
-                allowed_ids=None) -> tuple:
+                allowed_ids=None, case=None) -> tuple:
     """Pure resolution: (final Decision, path). Unit-tested; holds the safety rule."""
     # an LLM answer the judge would have rejected (unknown decision, missing or foreign reason code) is
     # "no second view", exactly as llm_judge.judge() treats it: the rules' line stands
@@ -208,6 +337,14 @@ def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], scr
     s1 = ("The rules engine decided %s (%s), but an independent Grok review decided %s (%s)."
           % (_human(det.decision), det.reason_code, _human(view["decision"]), view["reason_code"]))
     error_in = screen.get("error_in") if isinstance(screen, dict) else None
+    missed = _missed_ids(screen)
+    # 'deterministic' counts only with a supplied id the rules did not already cite.
+    # Otherwise this is the same as the screener saying the error is in the LLM: keep the rules.
+    if error_in == "deterministic" and not _has_new_citation(missed, allowed_ids, det.evidence):
+        error_in = "llm"
+    if (error_in == "deterministic" and view["decision"] == SAME and det.decision != SAME
+            and case is not None and not _same_supported(case)):
+        error_in = "llm"
     if error_in not in who:
         s2 = "A screening agent could not settle the disagreement."
         error_in = None
@@ -215,10 +352,6 @@ def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], scr
         expl = _clean(_scrub_explanation(screen.get("explanation") or "", allowed_ids))
         s2 = "A screening agent compared both and found the error in %s%s." % (
             who[error_in], (": " + expl) if expl else "")
-    missed = []
-    for fact in (screen or {}).get("significant_missed_facts") or []:
-        if isinstance(fact, dict):
-            missed.extend(fact.get("evidence_ids") or [])
     # The line's evidence is the rules' IDs plus IDs the screener says were missed.
     # The model's own evidence list is not copied: it can name records that are not in the case.
     evidence = _cite(list(det.evidence or []) + list(missed))
@@ -277,11 +410,15 @@ def resolve(det: Decision, llm_view: Optional[dict], case: dict) -> tuple:
         except Exception:  # noqa: BLE001
             screen = None
     allowed = case.get("allowed_ids") if isinstance(case, dict) else None
-    final, path = resolve_one(det, llm_view, screen, allowed_ids=allowed)
+    final, path = resolve_one(det, llm_view, screen, allowed_ids=allowed, case=case)
     final = _limit(final, det, case)
-    return final, {"deterministic": {"decision": det.decision, "reason_code": det.reason_code},
-                   "llm": llm_view, "screener": screen,
-                   "final": {"decision": final.decision, "reason_code": final.reason_code}, "path": path}
+    trace = {"deterministic": {"decision": det.decision, "reason_code": det.reason_code},
+             "llm": llm_view, "screener": screen,
+             "final": {"decision": final.decision, "reason_code": final.reason_code}, "path": path}
+    label = _guard_label(screen, allowed, det, llm_view, case, path)
+    if label:
+        trace["guard"] = label
+    return final, trace
 
 
 def review_all(items: list, data, log=None) -> Dict[str, Decision]:
@@ -321,15 +458,20 @@ def review_all(items: list, data, log=None) -> Dict[str, Decision]:
         _TRACE.clear()
     for hid in ids:
         det = cases[hid][0]
+        allowed = cases[hid][1].get("allowed_ids")
         final, path = resolve_one(det, views.get(hid), screens.get(hid),
-                                  allowed_ids=cases[hid][1].get("allowed_ids"))
+                                  allowed_ids=allowed, case=cases[hid][1])
         final = _limit(final, det, cases[hid][1])
         _bump(path)
+        traced = {"deterministic": {"decision": det.decision, "reason_code": det.reason_code},
+                  "llm": views.get(hid), "screener": screens.get(hid),
+                  "final": {"decision": final.decision, "reason_code": final.reason_code},
+                  "path": path}
+        label = _guard_label(screens.get(hid), allowed, det, views.get(hid), cases[hid][1], path)
+        if label:
+            traced["guard"] = label
         with _LOCK:
-            _TRACE[hid] = {"deterministic": {"decision": det.decision, "reason_code": det.reason_code},
-                           "llm": views.get(hid), "screener": screens.get(hid),
-                           "final": {"decision": final.decision, "reason_code": final.reason_code},
-                           "path": path}
+            _TRACE[hid] = traced
         if final is not det:
             out[hid] = final
     n = len(ids)
