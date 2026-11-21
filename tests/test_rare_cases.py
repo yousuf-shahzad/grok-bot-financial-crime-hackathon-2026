@@ -257,6 +257,10 @@ class RareCasesTest(unittest.TestCase):
         d = self.expect("H-RC45", SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC4501")
         self.assertIn("NOTE-RC0011", d["evidence"])
 
+    def test_46_dob_differs_passport_check_pending(self):
+        d = self.expect("H-RC46", DIFF, "DOB_MISMATCH", cid="CUS-RC4601")
+        self.assertIn("KYC-RC4601", d["evidence"])
+
     # ---- determinism -------------------------------------------------------------------------
     def test_second_run_identical(self):
         _, _, again = run_fixture()
