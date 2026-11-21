@@ -60,7 +60,21 @@ PROMPT = (
     "fields missed (a verified date of birth in a KYC note, a place the customer lived, an age in the hit's "
     "profile). In 'compared' list each field you compared (name, date of birth, country, type, death, "
     "earliest report) with the customer's and the hit's value and agree / contradict / unknown. "
-    "evidence_ids: the IDs, copied exactly, of the records that decide it; never invent one.\n\nSOP:\n" + SOP)
+    "evidence_ids: the IDs, copied exactly, of the records that decide it; never invent one.\n\n"
+    "RULES THAT ARE OFTEN MISAPPLIED, follow them exactly:\n"
+    "1. LOCATION: if every country tied to the customer differs from every country tied to the hit, the hit "
+    "IS cleared (DIFFERENT_ENTITY / LOCATION_MISMATCH). The ONLY exception is when the name AND the date of "
+    "birth BOTH agree. If the date of birth is unknown on either side, or does not agree, the exception does "
+    "NOT apply and the country difference clears the hit.\n"
+    "2. SAME_ENTITY for a person needs the name AND the date of birth to agree (birth year is one of the "
+    "hit's possible years and every part both give is equal). Name alone, or name and country, is NOT "
+    "enough. For a company: name AND country. Otherwise answer REVIEW.\n"
+    "3. UNKNOWN IS NEVER AGREEMENT and never a contradiction: a missing date of birth or country cannot "
+    "support SAME_ENTITY, and cannot by itself support DIFFERENT_ENTITY.\n"
+    "4. The input 'rules' holds the rules engine's decision and its comparison table ('checks': name, "
+    "date_of_birth, country with agree / contradict / unknown / neither, and whether the location exception "
+    "applies). Treat that table as correct unless a supplied record shows a fact it missed or got wrong; if "
+    "you decide differently from the rules, your evidence_ids MUST include that record.\n\nSOP:\n" + SOP)
 
 
 def _val(v) -> str:
@@ -143,6 +157,36 @@ def _customer_texts(person, data) -> List[dict]:
     return out
 
 
+def rules_checks(profile, person) -> dict:
+    """The rules engine's own comparison for one person, computed with judge.py's matchers, so the LLM
+    and the screener see exactly what the rules saw. Verdicts: agree / contradict / unknown / neither."""
+    from . import judge  # local import: judge imports nothing from here
+    if judge.names is None or judge.dates is None:
+        return {}
+    cnames, hnames = judge._cust_names(person), [f for f in profile.names if str(f.value or "").strip()]
+    nf, hf = judge.name_match(profile, person)
+    name = {"customer": [_val(f.value) for f in cnames], "hit": [_val(f.value) for f in hnames],
+            "verdict": "agree" if nf is not None else ("unknown" if not cnames or not hnames else "neither"),
+            "using": "verified legal name" if person.verified_name is not None else "record names"}
+    cdobs, births = judge._cust_dobs(person), judge._hit_births(profile)
+    if not cdobs or not births:
+        dv = "unknown"
+    elif any(judge.dates.birth_agrees(f.value, b) for f in cdobs for b in births):
+        dv = "agree"
+    elif all(judge.dates.birth_contradicted(f.value, b) for f in cdobs for b in births):
+        dv = "contradict"
+    else:
+        dv = "neither"
+    dob = {"customer": [_val(f.value) for f in cdobs], "hit": [_claim(b) for b in births], "verdict": dv,
+           "using": "verified date of birth" if person.verified_dob is not None else "declared dates of birth"}
+    cc = sorted({_val(f.value).lower() for f in person.countries if str(f.value or "").strip()})
+    hc = sorted({_val(f.value).lower() for f in profile.countries if str(f.value or "").strip()})
+    country = {"customer": cc, "hit": hc,
+               "verdict": "unknown" if not cc or not hc else ("agree" if set(cc) & set(hc) else "contradict")}
+    return {"person_id": person.person_id, "name": name, "date_of_birth": dob, "country": country,
+            "location_exception_applies": name["verdict"] == "agree" and dv == "agree"}
+
+
 def build_case(decision: Decision, profile, resolution, alert: dict, data) -> dict:
     people = []
     for p in sorted(resolution.people or [], key=lambda p: p.person_id):
@@ -162,7 +206,11 @@ def build_case(decision: Decision, profile, resolution, alert: dict, data) -> di
         "texts": _hit_texts(profile, data) if data is not None else [],
     }
     screened = {k: alert.get(k) for k in ("customer_name", "entity_type", "dob", "country", "city", "screened_at")}
-    case = {"alert_id": decision.alert_id, "screened": screened, "hit": hit, "customers": people,
+    rules = {"decision": decision.decision, "reason_code": decision.reason_code, "reason": decision.reason,
+             "evidence": list(decision.evidence),
+             "checks": [c for c in (rules_checks(profile, p) for p in sorted(resolution.people or [],
+                                                                               key=lambda p: p.person_id)) if c]}
+    case = {"alert_id": decision.alert_id, "screened": screened, "hit": hit, "customers": people, "rules": rules,
             "note": "several customers fit this alert" if len(people) > 1 else
                     ("no customer record was found" if not people else "")}
     case["allowed_ids"] = sorted(set(ID_RE.findall(json.dumps(case, ensure_ascii=False, sort_keys=True))))
