@@ -169,11 +169,12 @@ def _blocker(decision: Decision, prof, person, answer: dict) -> Optional[Tuple[s
                     return n.get("id", ""), "records a verified name, %s, that agrees with the hit's name" % vn
 
     if code in ("DOB_MISMATCH", "TEMPORAL_IMPOSSIBILITY"):
-        cust = _cust_dobs(person)
+        cust_src = [(c, "") for c in _cust_dobs(person)]
         for n in notes_read:
             d = _pd(n.get("date_of_birth")) if n.get("is_successful_identity_check") else None
             if d is not None and d.year:
-                cust.append(d)
+                cust_src.append((d, n.get("id", "")))
+        cust = [c for c, _ in cust_src]
         if code == "DOB_MISMATCH":
             claims = list(prof.births)
             for h in hit_read:
@@ -182,12 +183,14 @@ def _blocker(decision: Decision, prof, person, answer: dict) -> Optional[Tuple[s
                 years = tuple(sorted({int(y) for y in h.get("birth_year_candidates") or [] if 1850 < int(y) < 2030}))
                 if years:
                     claims.append(BirthClaim(years=years, month=h.get("birth_month"), day=h.get("birth_day"), source=h.get("id", "")))
-            for c in cust:
+            for c, csrc in cust_src:
                 for b in claims:
                     if not dates.birth_contradicted(c, b):
-                        return b.source if b.source.startswith(("SR-", "H-")) else "", \
-                            "gives a birth date (%s) that the customer's date of birth does not contradict" % (
-                                "/".join(str(y) for y in b.years))
+                        hit_years = "/".join(str(y) for y in b.years)
+                        if csrc:  # the blocking fact is a verified DOB our parser missed in a note
+                            return csrc, "records a verified date of birth (%s) that does not contradict the hit's %s" % (
+                                "-".join(str(x) for x in (c.year, c.month, c.day) if x), hit_years)
+                        return b.source, "gives the hit a birth date (%s) that the customer's date of birth does not contradict" % hit_years
         if code == "TEMPORAL_IMPOSSIBILITY" and not company:
             for h in hit_read:
                 rep = _pd(h.get("earliest_dated_report"))
