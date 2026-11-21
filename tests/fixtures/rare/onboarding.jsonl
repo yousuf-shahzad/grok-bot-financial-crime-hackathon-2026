@@ -5,3 +5,4 @@
 {"account_id": "ACC-RC13", "customer_id": "CUS-RC1201", "kyc_applicant_id": "APP-RC12", "onboarded_at": "2020-01-15"}
 {"account_id": "ACC-RC14", "customer_id": "CUS-RC1301", "kyc_applicant_id": "APP-RC13A", "onboarded_at": "2020-01-15"}
 {"account_id": "ACC-RC15", "customer_id": "CUS-RC1302", "kyc_applicant_id": "APP-RC13B", "onboarded_at": "2020-01-15"}
+{"account_id": "ACC-RC46", "customer_id": "CUS-RC4601", "kyc_applicant_id": "APP-RC46", "onboarded_at": "2020-01-15"}
