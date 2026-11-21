@@ -282,9 +282,12 @@ class ContractGaps(unittest.TestCase):
         self._stub({"error_in": "deterministic", "significant_missed_facts": [], "explanation": "Take the review."})
         d = det()
         for bad in (view(SAME, "DOB_MISMATCH"), {"decision": SAME, "compared": [], "evidence_ids": []}):
-            final, tr = arbiter.resolve(d, bad, self.case("CUS-T1"))
+            self.calls.clear()
+            final, tr = arbiter.resolve(d, bad, self.case("CUS-T1", "NOTE-T9"))
             self.assertIs(final, d)
             self.assertEqual(tr["path"], "llm_unavailable")
+            self.assertEqual(self.calls, [])
+            self.assertEqual(final.evidence, ["CUS-T1"])
 
     def test_screen_failed_flag_reviews(self):
         final, path = arbiter.resolve_one(det(), view(SAME, "NAME_DOB_MATCH"), screen("llm"), screen_failed=True)
@@ -295,6 +298,26 @@ class ContractGaps(unittest.TestCase):
             det(), view(SAME, "NAME_DOB_MATCH"),
             {"error_in": "unsure", "significant_missed_facts": [], "explanation": "no"})
         self.assertEqual((final.decision, final.reason_code, path), (REVIEW, "INSUFFICIENT_DATA", "screen_failed"))
+
+    def test_screener_explanation_ids_are_scrubbed(self):
+        self._stub({"error_in": "deterministic", "significant_missed_facts": [],
+                    "explanation": "Note NOTE-T9 agrees, but H-NO and ACC-NO and KYC-BAD do not."})
+        final, _ = arbiter.resolve(det(), view(SAME, "NAME_DOB_MATCH"), self.case("NOTE-T9", "CUS-T1"))
+        self.assertIn("NOTE-T9", final.reason)
+        self.assertIn("a record", final.reason)
+        self.assertNotIn("H-NO", final.reason)
+        self.assertNotIn("ACC-NO", final.reason)
+        self.assertNotIn("KYC-BAD", final.reason)
+        self.assertTrue(2 <= sentences(final.reason) <= 4, final.reason)
+
+    def test_screener_explanation_stays_within_four_sentences(self):
+        expl = " ".join("Sentence %d mentions KYC-BAD." % i for i in range(1, 9))
+        self._stub({"error_in": "deterministic", "significant_missed_facts": [], "explanation": expl})
+        final, _ = arbiter.resolve(det(), view(SAME, "NAME_DOB_MATCH"), self.case("CUS-T1"))
+        self.assertTrue(2 <= sentences(final.reason) <= 4, final.reason)
+        self.assertNotIn("KYC-BAD", final.reason)
+        self.assertNotIn("Sentence 8", final.reason)
+        self.assertIn("Sentence 1", final.reason)
 
     def test_disable_keeps_rules_output(self):
         os.environ["LLM_DISABLE"] = "1"

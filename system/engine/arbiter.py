@@ -80,10 +80,42 @@ def _human(decision: str) -> str:
     return {DIFF: "different entity", SAME: "same entity", REVIEW: "review"}.get(decision, decision.lower())
 
 
+# Same shape as the IDs in the files: NOTE-T9, KYC-1, CUS-T1, H-292F2E, ACC-100.
+_ID_LIKE = re.compile(r"\b[A-Za-z]{1,5}-[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]+)*\b")
+
+
 def _clean(s: str, limit: int = 220) -> str:
     s = re.sub(r"[.!?;:]+", ",", str(s or "")).strip(" ,")
     s = re.sub(r"\s+", " ", s)
     return s[:limit].rstrip(" ,")
+
+
+def _scrub_explanation(text: str, allowed) -> str:
+    """Take the screener's explanation down to one sentence with only case IDs in it.
+
+    H- and ACC- ids are never cited. Any other id-like token that is not in the case's
+    allowed_ids is replaced with 'a record'. One sentence, so the reason stays at 2 to 4.
+    """
+    allow = {str(i).upper() for i in (allowed or [])}
+
+    def repl(match):
+        key = match.group(0).upper()
+        if key.startswith("H-") or key.startswith("ACC-") or key not in allow:
+            return "a record"
+        return key
+
+    cleaned = _ID_LIKE.sub(repl, str(text or ""))
+    cleaned = re.sub(r"(?:\ba record\b\s*){2,}", "a record ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return _first_sentence(cleaned) or cleaned
+
+
+def _cap_reason(text: str) -> str:
+    """A changed line's reason is 2 to 4 sentences. The templates already supply at least two."""
+    parts = [p.strip() for p in re.findall(r"[^.!?]*[.!?]", text.strip()) if p.strip()]
+    if len(parts) > 4:
+        parts = parts[:4]
+    return " ".join(parts).strip() if parts else text.strip()
 
 
 def _first_sentence(text: str) -> str:
@@ -107,7 +139,7 @@ def _screen(case: dict, det: Decision, view: dict) -> Optional[dict]:
             missed.append({"fact": str(m["fact"]).strip(),
                            "evidence_ids": sorted({str(i) for i in m.get("evidence_ids") or [] if str(i) in allowed})})
     return {"error_in": got["error_in"], "significant_missed_facts": missed[:8],
-            "explanation": str(got.get("explanation") or "").strip()}
+            "explanation": _scrub_explanation(got.get("explanation") or "", allowed)}
 
 
 def _cite(ids) -> List[str]:
@@ -147,7 +179,8 @@ def _guard(final: Decision, det: Decision) -> Decision:
     return final
 
 
-def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], screen_failed: bool = False) -> tuple:
+def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], screen_failed: bool = False,
+                allowed_ids=None) -> tuple:
     """Pure resolution: (final Decision, path). Unit-tested; holds the safety rule."""
     # an LLM answer the judge would have rejected (unknown decision, missing or foreign reason code) is
     # "no second view", exactly as llm_judge.judge() treats it: the rules' line stands
@@ -167,7 +200,7 @@ def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], scr
         s2 = "A screening agent could not settle the disagreement."
         error_in = None
     else:
-        expl = _clean(screen.get("explanation") or "")
+        expl = _clean(_scrub_explanation(screen.get("explanation") or "", allowed_ids))
         s2 = "A screening agent compared both and found the error in %s%s." % (
             who[error_in], (": " + expl) if expl else "")
     missed = []
@@ -180,18 +213,18 @@ def resolve_one(det: Decision, view: Optional[dict], screen: Optional[dict], scr
 
     if error_in == "llm":
         s4 = _first_sentence(det.reason)
-        reason = " ".join(x for x in (s1, s2, "The rules engine's decision stands.", s4) if x)
+        reason = _cap_reason(" ".join(x for x in (s1, s2, "The rules engine's decision stands.", s4) if x))
         final, path = replace(det, reason=reason, evidence=evidence), "error_in_llm_keep_rules"
     elif error_in == "deterministic" and view["decision"] in (SAME, REVIEW):
-        reason = " ".join((s1, s2, "The Grok review's decision is taken."))
+        reason = _cap_reason(" ".join((s1, s2, "The Grok review's decision is taken.")))
         final, path = replace(det, decision=view["decision"], reason_code=_code_for(view["decision"], view.get("reason_code"), det),
                               reason=reason, evidence=evidence), "error_in_rules_take_llm"
     elif error_in == "deterministic":  # the LLM wants a clearance the rules did not make
-        reason = " ".join((s1, s2, "A clearance can only come from the rules engine, so an analyst decides."))
+        reason = _cap_reason(" ".join((s1, s2, "A clearance can only come from the rules engine, so an analyst decides.")))
         final, path = replace(det, decision=REVIEW, reason_code="INSUFFICIENT_DATA", reason=reason,
                               evidence=evidence), "error_in_rules_llm_clear_blocked"
     else:
-        reason = " ".join((s1, s2, "An analyst decides."))
+        reason = _cap_reason(" ".join((s1, s2, "An analyst decides.")))
         # An unrecognised error_in is a screener failure, same as a missing screen.
         label = "screen_failed" if error_in not in who else "error_in_%s_review" % error_in
         final, path = replace(det, decision=REVIEW, reason_code="INSUFFICIENT_DATA", reason=reason,
@@ -212,12 +245,18 @@ def resolve(det: Decision, llm_view: Optional[dict], case: dict) -> tuple:
     """The lead's single-hit contract: (final Decision, trace). Makes the screening call only on a
     disagreement; any screener failure resolves to REVIEW (never a crash, never a clearance)."""
     screen = None
-    if llm_view is not None and llm_view.get("decision") != det.decision:
+    # resolve_one already keeps the rules line when the view is missing or invalid. Do not spend a
+    # screener call on that view: it is not a second opinion.
+    decision = llm_view.get("decision") if isinstance(llm_view, dict) else None
+    code = llm_view.get("reason_code") if isinstance(llm_view, dict) else None
+    usable = decision in (DIFF, SAME, REVIEW) and code in (llm_judge.CODES.get(decision) or [])
+    if usable and decision != det.decision:
         try:
             screen = _screen(case, det, llm_view)
         except Exception:  # noqa: BLE001
             screen = None
-    final, path = resolve_one(det, llm_view, screen)
+    allowed = case.get("allowed_ids") if isinstance(case, dict) else None
+    final, path = resolve_one(det, llm_view, screen, allowed_ids=allowed)
     final = _limit(final, det, case)
     return final, {"deterministic": {"decision": det.decision, "reason_code": det.reason_code},
                    "llm": llm_view, "screener": screen,
@@ -261,7 +300,8 @@ def review_all(items: list, data, log=None) -> Dict[str, Decision]:
         _TRACE.clear()
     for hid in ids:
         det = cases[hid][0]
-        final, path = resolve_one(det, views.get(hid), screens.get(hid))
+        final, path = resolve_one(det, views.get(hid), screens.get(hid),
+                                  allowed_ids=cases[hid][1].get("allowed_ids"))
         final = _limit(final, det, cases[hid][1])
         _bump(path)
         with _LOCK:
