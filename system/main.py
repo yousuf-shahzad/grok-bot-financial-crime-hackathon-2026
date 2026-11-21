@@ -46,6 +46,52 @@ if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "engi
         log("main: crossexam unavailable (%s: %s), rules only" % (type(_e).__name__, _e))
 
 REVIEW_CODES = ("INSUFFICIENT_DATA", "AMBIGUOUS_CUSTOMER_RECORD")
+CODES = {"DIFFERENT_ENTITY": ("TEMPORAL_IMPOSSIBILITY", "DOB_MISMATCH", "LOCATION_MISMATCH",
+                              "NAME_MISMATCH_VERIFIED", "ENTITY_TYPE_MISMATCH", "DECEASED"),
+         "SAME_ENTITY": ("NAME_DOB_LOCATION_MATCH", "NAME_DOB_MATCH", "NAME_LOCATION_MATCH"),
+         "REVIEW": REVIEW_CODES}
+
+# Optional dual decision path (rules vs Grok judge + screening agent). Rules only if absent or broken.
+arbiter = None
+if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine", "arbiter.py")):
+    try:
+        from engine import arbiter  # type: ignore
+    except Exception as _e:  # noqa: BLE001
+        arbiter = None
+        log("main: arbiter unavailable (%s: %s), rules only" % (type(_e).__name__, _e))
+
+
+def _arbiter_ok(old: Decision, new) -> bool:
+    """The hard safety rule, enforced here too: the dual path may change a line in any way EXCEPT
+    create a clearance. A DIFFERENT_ENTITY out must already have been DIFFERENT_ENTITY in."""
+    if not isinstance(new, Decision) or new.hit_id != old.hit_id or new.alert_id != old.alert_id:
+        return False
+    if new.decision not in CODES or new.reason_code not in CODES[new.decision]:
+        return False
+    if new.decision == "DIFFERENT_ENTITY" and (old.decision != "DIFFERENT_ENTITY" or new.reason_code != old.reason_code):
+        return False
+    return True
+
+
+def arbitrate_all(decisions: list, items: list, data) -> dict:
+    """{hit_id: Decision} from the dual path, guarded; {} on any failure or without the module/key."""
+    if arbiter is None or not items:
+        return {}
+    by_id = {d.hit_id: d for d in decisions}
+    current = [(by_id.get(d.hit_id, d),) + tuple(rest) for d, *rest in items]
+    try:
+        got = arbiter.review_all(current, data, log=log) or {}
+    except Exception:  # noqa: BLE001
+        log("main: arbiter failed, keeping the decisions so far\n" + traceback.format_exc())
+        return {}
+    out = {}
+    for hid in sorted(str(k) for k in got) if isinstance(got, dict) else []:
+        old = by_id.get(hid)
+        if old is not None and _arbiter_ok(old, got[hid]):
+            out[hid] = got[hid]
+        elif old is not None:
+            log("main: arbiter change for %s ignored (it would create a clearance or is malformed)" % hid)
+    return out
 
 
 def _accept(old: Decision, new) -> bool:
@@ -223,7 +269,10 @@ def main(argv: list) -> int:
 
     # optional LLM cross-examiner, one batch so calls can run in parallel; guarded in cross_examine_all
     replace = cross_examine_all(items, data)
-    lines = [to_line(replace.get(d.hit_id, d)) for d in decisions]
+    decisions = [replace.get(d.hit_id, d) for d in decisions]
+    # optional dual path: Grok judge on every hit, screening agent on disagreement (after crossexam)
+    dual = arbitrate_all(decisions, items, data)
+    lines = [to_line(dual.get(d.hit_id, d)) for d in decisions]
 
     parent = os.path.dirname(out_path)
     if parent:
