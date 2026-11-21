@@ -4,233 +4,359 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Case Review</title>
+<!-- Pinned CDN versions; no build step. Needs internet for these four files. -->
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.16"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
 <style>
-:root {
-  --bg: #f6f7f9; --panel: #ffffff; --ink: #16181d; --muted: #5d6470; --line: #e3e6eb; --soft: #f0f2f5;
-  --clear: #137a4f; --clear-bg: #e5f4ec; --match: #b42318; --match-bg: #fdecea; --review: #9a6700; --review-bg: #fdf3dc;
-  --accent: #2f5bea; --chip: #eef1f6; --shadow: 0 1px 2px rgba(16,24,40,.06);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --muted: #9aa2ae; --line: #2a2f38; --soft: #1d2128;
-    --clear: #4fd19b; --clear-bg: #12291f; --match: #ff8a80; --match-bg: #2d1616; --review: #f2c15c; --review-bg: #2b2414;
-    --accent: #7c9cff; --chip: #232833; --shadow: none;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --muted: #9aa2ae; --line: #2a2f38; --soft: #1d2128;
-  --clear: #4fd19b; --clear-bg: #12291f; --match: #ff8a80; --match-bg: #2d1616; --review: #f2c15c; --review-bg: #2b2414;
-  --accent: #7c9cff; --chip: #232833; --shadow: none;
-}
-* { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
-body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
-header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; }
-header .sub { color: var(--muted); font-size: 12px; }
-.stats { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
-.stat { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font-size: 12px; color: var(--muted); }
-.stat b { color: var(--ink); font-variant-numeric: tabular-nums; }
-.stat.good b { color: var(--clear); } .stat.bad b { color: var(--match); }
-main { display: grid; grid-template-columns: minmax(320px, 38%) 1fr; height: calc(100% - 57px); }
-#left { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
-.filters { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
-.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.seg button { flex: 1; border: 0; background: transparent; color: var(--muted); padding: 6px 4px; font: inherit; font-size: 12px; cursor: pointer; }
-.seg button.on { background: var(--soft); color: var(--ink); font-weight: 600; }
-.row2 { display: flex; gap: 8px; align-items: center; }
-input[type=search], select { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font: inherit; font-size: 13px; }
-label.tog { font-size: 12px; color: var(--muted); display: flex; gap: 4px; align-items: center; white-space: nowrap; }
-#count { font-size: 12px; color: var(--muted); padding: 6px 12px; border-bottom: 1px solid var(--line); }
-#list { overflow: auto; flex: 1; }
-.item { padding: 9px 12px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: center; }
-.item:hover { background: var(--soft); } .item.sel { background: var(--soft); box-shadow: inset 3px 0 0 var(--accent); }
-.item .nm { font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item .meta { grid-column: 2 / 4; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.badge { font-size: 11px; font-weight: 650; padding: 2px 7px; border-radius: 999px; letter-spacing: .2px; white-space: nowrap; }
-.b-DIFFERENT_ENTITY { background: var(--clear-bg); color: var(--clear); }
-.b-SAME_ENTITY { background: var(--match-bg); color: var(--match); }
-.b-REVIEW { background: var(--review-bg); color: var(--review); }
-.truth { font-size: 11px; color: var(--muted); } .truth.ok { color: var(--clear); } .truth.no { color: var(--match); font-weight: 650; }
-#right { overflow: auto; padding: 20px 24px 40px; min-width: 0; }
-.empty { color: var(--muted); padding: 40px 0; text-align: center; }
-h2 { font-size: 18px; margin: 0 0 2px; } h3 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 650; }
-.vs { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
-.ruling { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
-.ruling .badge { font-size: 13px; padding: 4px 12px; }
-.code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: var(--muted); }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; box-shadow: var(--shadow); }
-.reason { font-size: 14px; margin: 0 0 10px; }
-.chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.chip { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; background: var(--chip); border: 1px solid var(--line); color: var(--ink); border-radius: 6px; padding: 2px 7px; cursor: pointer; }
-.chip:hover { border-color: var(--accent); color: var(--accent); }
-.court { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.side h3 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
-.pros .dot { background: var(--match); } .def .dot { background: var(--clear); }
-.arg { border-top: 1px solid var(--line); padding: 8px 0; } .arg:first-of-type { border-top: 0; }
-.arg .t { font-weight: 600; } .arg .d { color: var(--muted); font-size: 13px; margin: 2px 0 4px; }
-.arg.off .t { color: var(--muted); font-weight: 500; } .arg.off { opacity: .75; }
-.mark { font-size: 12px; font-weight: 700; margin-right: 6px; } .mark.y { color: var(--clear); } .mark.n { color: var(--muted); }
-.note { font-size: 12px; color: var(--review); }
-.tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
-.tabs button { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
-.tabs button.on { color: var(--ink); border-color: var(--accent); }
-dl { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; margin: 0; font-size: 13px; }
-dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.facts .src { margin-left: 4px; }
-.miss { color: var(--review); font-size: 13px; margin: 4px 0 0; padding-left: 18px; }
-.label { font-size: 13px; } .label.ok { color: var(--clear); } .label.no { color: var(--match); font-weight: 600; }
-#modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; padding: 16px; }
-#modal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; max-width: 760px; width: 100%; max-height: 80vh; overflow: auto; padding: 16px; }
-#modal pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; margin: 8px 0 0; }
-#modal .top { display: flex; justify-content: space-between; align-items: center; }
-button.x { border: 1px solid var(--line); background: var(--soft); color: var(--ink); border-radius: 8px; padding: 4px 10px; cursor: pointer; font: inherit; }
-#loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--muted); font-size: 14px; }
-@media (max-width: 860px) {
-  main { grid-template-columns: 1fr; height: auto; } #left { max-height: 50vh; } .court { grid-template-columns: 1fr; }
-  dl { grid-template-columns: 110px 1fr; } header { padding: 12px 16px; } #right { padding: 16px; }
-}
+  html, body, #root { height: 100%; }
+  html.big { font-size: 18px; }   /* projector mode: Tailwind rem sizes scale with this */
+  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 </style>
 </head>
-<body>
-<div id="loading">Starting the engine on the data folder...</div>
-<header>
-  <div><h1>Case Review</h1><div class="sub">Sanctions screening: is the hit the customer?</div></div>
-  <div class="stats" id="stats"></div>
-</header>
-<main>
-  <section id="left">
-    <div class="filters">
-      <div class="seg" id="seg">
-        <button data-d="" class="on">All</button><button data-d="DIFFERENT_ENTITY">Cleared</button>
-        <button data-d="SAME_ENTITY">Confirmed</button><button data-d="REVIEW">Review</button>
-      </div>
-      <div class="row2">
-        <select id="reason"><option value="">Any reason</option></select>
-        <label class="tog"><input type="checkbox" id="practice"> Practice only</label>
-      </div>
-      <input type="search" id="q" placeholder="Search name, hit or customer ID">
-    </div>
-    <div id="count"></div>
-    <div id="list"></div>
-  </section>
-  <section id="right"><div class="empty">Pick a hit on the left to see the case.</div></section>
-</main>
-<div id="modal"><div class="box"><div class="top"><b id="mtitle"></b><button class="x" onclick="closeModal()">Close</button></div><pre id="mbody"></pre></div></div>
+<body class="bg-base-200 text-base-content">
+<div id="root"></div>
 <script>
-const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-const LABEL = {DIFFERENT_ENTITY: "Cleared", SAME_ENTITY: "Confirmed", REVIEW: "Review"};
-let state = {decision: "", reason: "", q: "", practice: false, selected: null, person: 0, detail: null};
+const { useState, useEffect, useRef } = React;
+const html = htm.bind(React.createElement);
 
-async function api(path) { const r = await fetch(path); if (!r.ok) throw new Error((await r.json()).error || r.status); return r.json(); }
-const chip = (id) => id ? `<span class="chip" onclick="openRecord('${esc(id)}')">${esc(id)}</span>` : "";
-const badge = (d) => `<span class="badge b-${d}">${LABEL[d] || d}</span>`;
+const LABEL = { DIFFERENT_ENTITY: "Cleared", SAME_ENTITY: "Confirmed", REVIEW: "Review" };
+const TONE = { DIFFERENT_ENTITY: "badge-success", SAME_ENTITY: "badge-error", REVIEW: "badge-warning" };
 
-async function boot() {
-  for (;;) { const s = await api("/api/status"); if (s.ready) break; $("#loading").textContent = "Engine: " + s.status + "..."; await new Promise((r) => setTimeout(r, 700)); }
-  $("#loading").remove();
-  const s = await api("/api/summary");
+async function api(path) {
+  const r = await fetch(path);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.error || String(r.status));
+  return body;
+}
+
+function store(key, fallback) {          // per-browser convenience only; safe if storage is blocked
+  try { const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); } catch (e) { return fallback; }
+}
+function save(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {} }
+
+const Badge = ({ d, size = "" }) => html`<span class=${"badge font-semibold whitespace-nowrap " + (TONE[d] || "badge-ghost") + " " + size}>${LABEL[d] || d}</span>`;
+const Code = ({ children }) => html`<span class="mono text-xs opacity-70">${children}</span>`;
+const None = ({ text = "none" }) => html`<span class="mono text-xs opacity-50">${text}</span>`;
+
+function Chip({ id, onOpen }) {
+  if (!id) return null;
+  return html`<button class="btn btn-xs btn-outline mono normal-case font-normal" onClick=${() => onOpen(id)}>${id}</button>`;
+}
+const Chips = ({ ids, onOpen, empty = "no records cited" }) =>
+  (ids && ids.length) ? html`<div class="flex flex-wrap gap-1">${ids.map((id) => html`<${Chip} key=${id} id=${id} onOpen=${onOpen} />`)}</div>` : html`<${None} text=${empty} />`;
+
+function Facts({ facts, onOpen }) {
+  const list = (facts || []).filter(Boolean);
+  if (!list.length) return html`<${None} />`;
+  return html`<div class="space-y-1">${list.map((f, i) => html`
+    <div key=${i} class="flex flex-wrap items-center gap-1">
+      <span>${String(f.value)}</span>${f.kind ? html`<${Code}>${f.kind}</${Code}>` : null}<${Chip} id=${f.source} onOpen=${onOpen} />
+    </div>`)}</div>`;
+}
+
+function Row({ k, children }) {
+  return html`<div class="grid grid-cols-[8.5rem_1fr] gap-3 py-1.5 border-b border-base-200 last:border-0">
+    <div class="text-sm opacity-60">${k}</div><div class="text-sm min-w-0 break-words">${children}</div></div>`;
+}
+
+function Card({ title, dot, children, extra }) {
+  return html`<div class="card bg-base-100 shadow-sm border border-base-300">
+    <div class="card-body p-4 gap-2">
+      ${title ? html`<h3 class="text-xs font-bold uppercase tracking-wider opacity-60 flex items-center gap-2">
+        ${dot ? html`<span class=${"inline-block w-2 h-2 rounded-full " + dot}></span>` : null}${title}${extra}</h3>` : null}
+      ${children}
+    </div></div>`;
+}
+
+// ---------------------------------------------------------------- header
+
+function Stats({ s }) {
+  if (!s) return null;
   const n = (d) => Object.values(s.by_decision[d] || {}).reduce((a, b) => a + b, 0);
   const p = s.practice;
-  $("#stats").innerHTML = [
-    `<span class="stat"><b>${s.hits}</b> hits, ${s.alerts} alerts</span>`,
-    `<span class="stat"><b>${n("DIFFERENT_ENTITY")}</b> cleared</span>`,
-    `<span class="stat"><b>${n("SAME_ENTITY")}</b> confirmed</span>`,
-    `<span class="stat"><b>${n("REVIEW")}</b> to review</span>`,
-    p.n ? `<span class="stat ${p.unsafe ? "bad" : "good"}">practice <b>${p.right}/${p.n}</b>, score <b>${p.score}%</b>, unsafe <b>${p.unsafe}</b></span>` : "",
-    `<span class="stat">engine run <b>${s.seconds}s</b></span>`].join("");
-  const codes = new Set(); Object.values(s.by_decision).forEach((m) => Object.keys(m).forEach((c) => codes.add(c)));
-  $("#reason").innerHTML += [...codes].sort().map((c) => `<option>${c}</option>`).join("");
-  loadList();
+  return html`<div class="stats stats-horizontal shadow-sm bg-base-100 border border-base-300 overflow-x-auto max-w-full">
+    <div class="stat py-2 px-4"><div class="stat-title text-xs">Hits</div><div class="stat-value text-xl">${s.hits}</div><div class="stat-desc">${s.alerts} alerts</div></div>
+    <div class="stat py-2 px-4"><div class="stat-title text-xs">Cleared</div><div class="stat-value text-xl text-success">${n("DIFFERENT_ENTITY")}</div></div>
+    <div class="stat py-2 px-4"><div class="stat-title text-xs">Confirmed</div><div class="stat-value text-xl text-error">${n("SAME_ENTITY")}</div></div>
+    <div class="stat py-2 px-4"><div class="stat-title text-xs">To review</div><div class="stat-value text-xl text-warning">${n("REVIEW")}</div></div>
+    ${p.n ? html`<div class="stat py-2 px-4"><div class="stat-title text-xs">Practice labels</div>
+      <div class=${"stat-value text-xl " + (p.unsafe ? "text-error" : "text-success")}>${p.right}/${p.n}</div>
+      <div class="stat-desc">score ${p.score}% · unsafe ${p.unsafe}</div></div>` : null}
+    <div class="stat py-2 px-4"><div class="stat-title text-xs">Engine run</div><div class="stat-value text-xl">${s.seconds}s</div><div class="stat-desc">${s.folder}</div></div>
+  </div>`;
 }
 
-let t; function debounce(f) { clearTimeout(t); t = setTimeout(f, 180); }
-async function loadList() {
-  const qs = new URLSearchParams({decision: state.decision, reason: state.reason, q: state.q, practice: state.practice ? "1" : ""});
-  const r = await api("/api/hits?" + qs);
-  $("#count").textContent = `${r.total} hit${r.total === 1 ? "" : "s"}` + (r.total > r.rows.length ? ` (first ${r.rows.length})` : "");
-  $("#list").innerHTML = r.rows.map((x) => {
-    const truth = x.truth ? (x.truth === x.decision ? `<span class="truth ok">label agrees</span>` : `<span class="truth no">label: ${LABEL[x.truth]}</span>`) : "";
-    return `<div class="item ${x.hit_id === state.selected ? "sel" : ""}" data-h="${esc(x.hit_id)}">
-      ${badge(x.decision)}<span class="nm">${esc(x.hit_name)}</span>${truth}
-      <span class="meta">${esc(x.hit_id)} · screened as ${esc(x.screened || "?")} · ${esc(x.reason_code)}</span></div>`;
-  }).join("") || `<div class="empty">No hits match.</div>`;
-}
-
-async function select(hid) {
-  state.selected = hid; state.person = 0;
-  document.querySelectorAll(".item").forEach((e) => e.classList.toggle("sel", e.dataset.h === hid));
-  state.detail = await api("/api/hit/" + encodeURIComponent(hid)); render();
-}
-
-function factList(facts) { return (facts || []).map((f) => `${esc(f.value)}${f.kind ? ` <span class="code">${esc(f.kind)}</span>` : ""} ${chip(f.source)}`).join("<br>") || `<span class="code">none</span>`; }
-
-function render() {
-  const x = state.detail, d = x.decision, prof = x.profile, res = x.resolution;
-  const people = (res && res.people) || [];
-  const trial = x.court[state.person];
-  let label = "";
-  if (x.label) {
-    const ok = x.label.decision === d.decision;
-    label = `<div class="card"><h3>Practice label</h3><div class="label ${ok ? "ok" : "no"}">${ok ? "Agrees with the reference answer" : "Reference answer differs"}: ${badge(x.label.decision)} <span class="code">${esc(x.label.reason_codes)}</span></div>
-      <div class="vs" style="margin:8px 0 0">${esc(x.label.reference_reason)}</div></div>`;
-  }
-  const tabs = people.length > 1 ? `<div class="tabs">${people.map((p, i) => `<button class="${i === state.person ? "on" : ""}" onclick="state.person=${i};render()">Person ${i + 1}: ${esc(p.person_id)}</button>`).join("")}</div>` : "";
-  const pros = trial ? (trial.prosecution.length ? trial.prosecution.map((a) => `<div class="arg"><div class="t">${esc(a.what)}</div><div class="d">${esc(a.detail)}</div><div class="chips">${a.sources.map(chip).join("")}</div></div>`).join("") : `<div class="arg off"><div class="d">Nothing agrees.</div></div>`) : `<div class="arg off"><div class="d">No customer resolved, so nothing to compare.</div></div>`;
-  const def = trial ? trial.defence.map((a) => `<div class="arg ${a.holds ? "" : "off"}"><div class="t"><span class="mark ${a.holds ? "y" : "n"}">${a.holds ? "HOLDS" : "no"}</span>${esc(a.rule)}</div><div class="d">${esc(a.detail)}</div>${a.note ? `<div class="note">${esc(a.note)}</div>` : ""}</div>`).join("") : "";
-  const person = people[state.person];
-  $("#right").innerHTML = `
-    <h2>${esc(x.hit_raw.name)}</h2>
-    <div class="vs">${esc(d.hit_id)} · alert ${chip(d.alert_id)} · screened as <b>${esc(x.alert.customer_name || "?")}</b>${x.alert.dob ? ", born " + esc(x.alert.dob) : ""}${x.alert.country ? ", " + esc(x.alert.country) : ""} · ${esc(prof.listing_kind || "")}</div>
-    <div class="card">
-      <h3>The ruling</h3>
-      <div class="ruling">${badge(d.decision)}<span class="code">${esc(d.reason_code)}</span><span class="code">customer: ${esc(d.customer_record_id == null ? "none found" : d.customer_record_id)}</span></div>
-      <p class="reason">${esc(d.reason)}</p>
-      <div class="chips">${(d.evidence || []).map(chip).join("") || '<span class="code">no records cited</span>'}</div>
+function Header({ s, theme, setTheme, big, setBig }) {
+  return html`<header class="navbar bg-base-100 border-b border-base-300 px-4 gap-4 flex-wrap min-h-0 py-2">
+    <div class="flex-none flex-col !items-start">
+      <div class="text-lg font-bold leading-tight">Case Review</div>
+      <div class="text-xs opacity-60">Sanctions screening: is the hit the customer?</div>
     </div>
-    ${label}
-    ${tabs}
-    <div class="court">
-      <div class="card side pros"><h3><span class="dot"></span>Prosecution: same person</h3>${pros}</div>
-      <div class="card side def"><h3><span class="dot"></span>Defence: different person</h3>${def || '<div class="arg off"><div class="d">No customer to test.</div></div>'}</div>
+    <div class="order-last lg:order-none w-full lg:w-auto lg:flex-1 lg:justify-end min-w-0"><${Stats} s=${s} /></div>
+    <div class="flex-none flex gap-1">
+      <button class=${"btn btn-sm " + (big ? "btn-active" : "btn-ghost")} title="Larger text for projectors" onClick=${() => setBig(!big)}>A+</button>
+      <button class="btn btn-sm btn-ghost" title="Toggle light / dark" onClick=${() => setTheme(theme === "dark" ? "light" : "dark")}>${theme === "dark" ? "Light" : "Dark"}</button>
     </div>
-    <div class="court">
-      <div class="card facts"><h3>Who the customer is</h3>${person ? `<dl>
-        <dt>Records</dt><dd>${person.record_ids.map(chip).join(" ")}</dd>
-        <dt>Verified name</dt><dd>${person.verified_name ? factList([person.verified_name]) : '<span class="code">none</span>'}</dd>
-        <dt>Names on file</dt><dd>${factList(person.names)}</dd>
-        <dt>Verified DOB</dt><dd>${person.verified_dob ? factList([person.verified_dob]) : '<span class="code">none</span>'}</dd>
-        <dt>Declared DOBs</dt><dd>${factList(person.dobs)}</dd>
-        <dt>Countries</dt><dd>${factList(person.countries)}</dd>
-        <dt>Path</dt><dd>${(person.path || []).map(chip).join(" ") || '<span class="code">direct</span>'}</dd></dl>
-        <div class="vs" style="margin:8px 0 0">${esc(res.note)}</div>` : `<div class="vs">${esc(res ? res.note : "")}</div>`}</div>
-      <div class="card facts"><h3>Who the hit is</h3><dl>
-        <dt>Names</dt><dd>${factList(prof.names)}</dd>
-        <dt>Birth dates</dt><dd>${(prof.births || []).map((b) => esc(b) ).join("<br>") || '<span class="code">none found</span>'}</dd>
-        <dt>Countries</dt><dd>${factList(prof.countries)}</dd>
-        <dt>Earliest report</dt><dd>${prof.earliest_report ? factList([prof.earliest_report]) : '<span class="code">none</span>'}</dd>
-        <dt>Deceased</dt><dd>${prof.deceased ? factList([prof.deceased]) : '<span class="code">no</span>'}</dd>
-        <dt>Type</dt><dd>${esc(prof.entity_type)}</dd></dl>
-        ${(prof.missing || []).length ? `<h3 style="margin-top:12px">Known unknowns</h3><ul class="miss">${prof.missing.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>` : ""}
+  </header>`;
+}
+
+// ---------------------------------------------------------------- queue
+
+function Queue({ codes, selected, onSelect }) {
+  const [f, setF] = useState({ decision: "", reason: "", q: "", practice: false });
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState("");
+  const t = useRef(0);
+
+  useEffect(() => {
+    clearTimeout(t.current);
+    t.current = setTimeout(() => {
+      const qs = new URLSearchParams({ decision: f.decision, reason: f.reason, q: f.q, practice: f.practice ? "1" : "" });
+      api("/api/hits?" + qs).then((r) => { setRows(r); setErr(""); }).catch((e) => setErr(e.message));
+    }, f.q ? 180 : 0);
+  }, [f]);
+
+  const seg = [["", "All"], ["DIFFERENT_ENTITY", "Cleared"], ["SAME_ENTITY", "Confirmed"], ["REVIEW", "Review"]];
+  return html`<section class="flex flex-col min-h-0 bg-base-100 border-r border-base-300">
+    <div class="p-3 space-y-2 border-b border-base-300">
+      <div class="join w-full">${seg.map(([v, l]) => html`
+        <button key=${v} class=${"join-item btn btn-sm flex-1 " + (f.decision === v ? "btn-primary" : "")} onClick=${() => setF({ ...f, decision: v })}>${l}</button>`)}</div>
+      <div class="flex gap-2 items-center">
+        <select class="select select-sm select-bordered flex-1 min-w-0" value=${f.reason} onChange=${(e) => setF({ ...f, reason: e.target.value })}>
+          <option value="">Any reason</option>${codes.map((c) => html`<option key=${c} value=${c}>${c}</option>`)}
+        </select>
+        <label class="label cursor-pointer gap-2 py-0"><span class="label-text text-xs whitespace-nowrap">Practice only</span>
+          <input type="checkbox" class="toggle toggle-sm" checked=${f.practice} onChange=${(e) => setF({ ...f, practice: e.target.checked })} /></label>
       </div>
-    </div>`;
+      <input type="search" class="input input-sm input-bordered w-full" placeholder="Search name, hit or customer ID" value=${f.q} onInput=${(e) => setF({ ...f, q: e.target.value })} />
+    </div>
+    <div class="text-xs opacity-60 px-3 py-1.5 border-b border-base-300">
+      ${err ? html`<span class="text-error">${err}</span>` : rows ? `${rows.total} hit${rows.total === 1 ? "" : "s"}${rows.total > rows.rows.length ? ` (first ${rows.rows.length})` : ""}` : "Loading..."}
+    </div>
+    <ul class="overflow-auto flex-1">
+      ${rows && !rows.rows.length ? html`<li class="p-8 text-center opacity-60">No hits match.</li>` : null}
+      ${(rows ? rows.rows : []).map((x) => {
+        const truth = x.truth ? (x.truth === x.decision
+          ? html`<span class="text-xs text-success">label agrees</span>`
+          : html`<span class="text-xs text-error font-semibold">label: ${LABEL[x.truth]}</span>`) : null;
+        const on = x.hit_id === selected;
+        return html`<li key=${x.hit_id}>
+          <button class=${"w-full text-left px-3 py-2 border-b border-base-200 hover:bg-base-200 grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-0.5 items-center " + (on ? "bg-base-200 shadow-[inset_3px_0_0_oklch(var(--p))]" : "")}
+            onClick=${() => onSelect(x.hit_id)}>
+            <${Badge} d=${x.decision} size="badge-sm" />
+            <span class="font-medium truncate">${x.hit_name}</span>${truth || html`<span></span>`}
+            <span class="col-start-2 col-span-2 text-xs opacity-60 truncate">${x.hit_id} · screened as ${x.screened || "?"} · ${x.reason_code}</span>
+          </button></li>`;
+      })}
+    </ul>
+  </section>`;
 }
 
-async function openRecord(id) {
-  try { const r = await api("/api/record/" + encodeURIComponent(id)); $("#mtitle").textContent = `${r.id} (${r.kind.replace("_", " ")})`; $("#mbody").textContent = JSON.stringify(r.row, null, 2); }
-  catch (e) { $("#mtitle").textContent = id; $("#mbody").textContent = "Not found in the data folder."; }
-  $("#modal").style.display = "flex";
+// ---------------------------------------------------------------- case
+
+function settleLine(x, people) {
+  // "What would settle this": the gaps that keep a REVIEW from being decided.
+  const out = [];
+  const res = x.resolution;
+  if (!people.length) out.push("finding which customer record this alert is about");
+  if (people.length > 1) out.push(`knowing which of the ${people.length} customers fits the alert`);
+  for (const m of (x.profile.missing || [])) out.push(m);
+  people.forEach((p, i) => {
+    const who = people.length > 1 ? ` (person ${i + 1})` : "";
+    if (!(p.dobs || []).length && !p.verified_dob) out.push("a date of birth for the customer" + who);
+    if (!(p.countries || []).length) out.push("a country for the customer" + who);
+  });
+  return [...new Set(out)];
 }
-function closeModal() { $("#modal").style.display = "none"; }
-$("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
-$("#seg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; document.querySelectorAll("#seg button").forEach((x) => x.classList.toggle("on", x === b)); state.decision = b.dataset.d; loadList(); });
-$("#reason").addEventListener("change", (e) => { state.reason = e.target.value; loadList(); });
-$("#practice").addEventListener("change", (e) => { state.practice = e.target.checked; loadList(); });
-$("#q").addEventListener("input", (e) => { state.q = e.target.value; debounce(loadList); });
-$("#list").addEventListener("click", (e) => { const it = e.target.closest(".item"); if (it) select(it.dataset.h); });
-boot().catch((e) => { document.body.innerHTML = `<div class="empty">Could not start: ${esc(e.message)}</div>`; });
+
+function Court({ trial, onOpen }) {
+  if (!trial) return html`<div class="grid md:grid-cols-2 gap-4">
+    <${Card} title="Prosecution: same person" dot="bg-error"><div class="text-sm opacity-60">No customer resolved, so nothing to compare.</div></${Card}>
+    <${Card} title="Defence: different person" dot="bg-success"><div class="text-sm opacity-60">No customer to test.</div></${Card}></div>`;
+  return html`<div class="grid md:grid-cols-2 gap-4">
+    <${Card} title="Prosecution: same person" dot="bg-error">
+      ${trial.prosecution.length ? trial.prosecution.map((a, i) => html`
+        <div key=${i} class="py-2 border-t border-base-200 first:border-0">
+          <div class="font-semibold">${a.what}</div>
+          <div class="text-sm opacity-70 mb-1">${a.detail}</div>
+          <${Chips} ids=${a.sources} onOpen=${onOpen} />
+        </div>`) : html`<div class="text-sm opacity-60">Nothing agrees.</div>`}
+    </${Card}>
+    <${Card} title="Defence: different person" dot="bg-success">
+      ${trial.defence.map((a, i) => html`
+        <div key=${i} class=${"py-2 border-t border-base-200 first:border-0 " + (a.holds ? "" : "opacity-60")}>
+          <div class="flex items-center gap-2">
+            <span class=${"badge badge-sm " + (a.holds ? "badge-success" : "badge-ghost")}>${a.holds ? "HOLDS" : "no"}</span>
+            <span class=${a.holds ? "font-semibold" : ""}>${a.rule}</span>
+          </div>
+          <div class="text-sm opacity-70 mt-1">${a.detail}</div>
+          ${a.note ? html`<div class="text-xs text-warning mt-1">${a.note}</div>` : null}
+        </div>`)}
+    </${Card}></div>`;
+}
+
+function Case({ hid, onOpen }) {
+  const [x, setX] = useState(null);
+  const [err, setErr] = useState("");
+  const [person, setPerson] = useState(0);
+
+  useEffect(() => {
+    setX(null); setErr(""); setPerson(0);
+    if (hid) api("/api/hit/" + encodeURIComponent(hid)).then(setX).catch((e) => setErr(e.message));
+  }, [hid]);
+
+  if (!hid) return html`<div class="h-full grid place-items-center opacity-60 p-8 text-center">Pick a hit in the queue to see the case.</div>`;
+  if (err) return html`<div class="p-8"><div class="alert alert-error">${err}</div></div>`;
+  if (!x) return html`<div class="h-full grid place-items-center"><span class="loading loading-spinner loading-lg"></span></div>`;
+
+  const d = x.decision, prof = x.profile, res = x.resolution;
+  const people = (res && res.people) || [];
+  const p = people[person];
+  const settle = d.decision === "REVIEW" ? settleLine(x, people) : [];
+  const a = x.alert || {};
+
+  return html`<div class="p-4 md:p-6 space-y-4 max-w-6xl">
+    <div>
+      <h2 class="text-2xl font-bold">${x.hit_raw.name}</h2>
+      <div class="text-sm opacity-70 flex flex-wrap items-center gap-1 mt-1">
+        <span>${d.hit_id} · alert</span><${Chip} id=${d.alert_id} onOpen=${onOpen} />
+        <span>· screened as <b>${a.customer_name || "?"}</b>${a.dob ? ", born " + a.dob : ""}${a.country ? ", " + a.country : ""}${prof.listing_kind ? " · " + prof.listing_kind : ""}</span>
+      </div>
+    </div>
+
+    <${Card} title="The ruling">
+      <div class="flex flex-wrap items-center gap-3">
+        <${Badge} d=${d.decision} size="badge-lg" /><${Code}>${d.reason_code}</${Code}>
+        <${Code}>customer: ${d.customer_record_id == null ? "none found" : d.customer_record_id}</${Code}>
+      </div>
+      <p class="text-base">${d.reason}</p>
+      <${Chips} ids=${d.evidence} onOpen=${onOpen} />
+      ${settle.length ? html`<div class="alert alert-warning mt-2 py-2 text-sm items-start">
+        <div><b>What would settle this:</b> ${settle.join("; ")}.</div></div>` : null}
+    </${Card}>
+
+    ${x.label ? html`<${Card} title="Practice label">
+      <div class=${"flex flex-wrap items-center gap-2 text-sm " + (x.label.decision === d.decision ? "text-success" : "text-error font-semibold")}>
+        ${x.label.decision === d.decision ? "Agrees with the reference answer" : "Reference answer differs"}:
+        <${Badge} d=${x.label.decision} size="badge-sm" /><${Code}>${String(x.label.reason_codes || "")}</${Code}>
+      </div>
+      ${x.label.reference_reason ? html`<div class="text-sm opacity-70">${x.label.reference_reason}</div>` : null}
+    </${Card}>` : null}
+
+    ${people.length > 1 ? html`<div role="tablist" class="tabs tabs-boxed w-fit flex-wrap">${people.map((q, i) => html`
+      <button key=${q.person_id} role="tab" class=${"tab " + (i === person ? "tab-active" : "")} onClick=${() => setPerson(i)}>Person ${i + 1}: ${q.person_id}</button>`)}</div>` : null}
+
+    <${Court} trial=${x.court[person]} onOpen=${onOpen} />
+
+    <div class="grid md:grid-cols-2 gap-4">
+      <${Card} title="Who the customer is">
+        ${p ? html`<div>
+          <${Row} k="Records"><${Chips} ids=${p.record_ids} onOpen=${onOpen} /></${Row}>
+          <${Row} k="Verified name">${p.verified_name ? html`<${Facts} facts=${[p.verified_name]} onOpen=${onOpen} />` : html`<${None} />`}</${Row}>
+          <${Row} k="Names on file"><${Facts} facts=${p.names} onOpen=${onOpen} /></${Row}>
+          <${Row} k="Verified DOB">${p.verified_dob ? html`<${Facts} facts=${[p.verified_dob]} onOpen=${onOpen} />` : html`<${None} />`}</${Row}>
+          <${Row} k="Declared DOBs"><${Facts} facts=${p.dobs} onOpen=${onOpen} /></${Row}>
+          <${Row} k="Countries"><${Facts} facts=${p.countries} onOpen=${onOpen} /></${Row}>
+          <${Row} k="Path"><${Chips} ids=${p.path} onOpen=${onOpen} empty="direct" /></${Row}>
+        </div>` : null}
+        ${res && res.note ? html`<div class="text-sm opacity-70">${res.note}</div>` : null}
+      </${Card}>
+
+      <${Card} title="Who the hit is">
+        <div>
+          <${Row} k="Names"><${Facts} facts=${prof.names} onOpen=${onOpen} /></${Row}>
+          <${Row} k="Birth dates">${(prof.births || []).length ? html`<div class="space-y-1">${prof.births.map((b, i) => html`<div key=${i}>${String(b)}</div>`)}</div>` : html`<${None} text="none found" />`}</${Row}>
+          <${Row} k="Countries"><${Facts} facts=${prof.countries} onOpen=${onOpen} /></${Row}>
+          <${Row} k="Earliest report">${prof.earliest_report ? html`<${Facts} facts=${[prof.earliest_report]} onOpen=${onOpen} />` : html`<${None} />`}</${Row}>
+          <${Row} k="Deceased">${prof.deceased ? html`<${Facts} facts=${[prof.deceased]} onOpen=${onOpen} />` : html`<${None} text="no" />`}</${Row}>
+          <${Row} k="Type">${prof.entity_type}</${Row}>
+        </div>
+        ${(prof.missing || []).length ? html`<div class="mt-2">
+          <div class="text-xs font-bold uppercase tracking-wider opacity-60 mb-1">Known unknowns</div>
+          <ul class="list-disc pl-5 text-sm text-warning">${prof.missing.map((m, i) => html`<li key=${i}>${m}</li>`)}</ul></div>` : null}
+      </${Card}>
+    </div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- record modal
+
+function RecordModal({ id, onClose }) {
+  const [r, setR] = useState(null);
+  useEffect(() => {
+    setR(null);
+    if (id) api("/api/record/" + encodeURIComponent(id)).then(setR).catch(() => setR({ id, kind: "", missing: true }));
+  }, [id]);
+  useEffect(() => {
+    const k = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", k);
+    return () => document.removeEventListener("keydown", k);
+  }, []);
+  if (!id) return null;
+  return html`<div class="modal modal-open" onClick=${(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div class="modal-box max-w-3xl">
+      <div class="flex justify-between items-center gap-2">
+        <h3 class="font-bold mono">${id}${r && r.kind ? html` <span class="badge badge-ghost font-sans">${r.kind.replace("_", " ")}</span>` : null}</h3>
+        <button class="btn btn-sm" onClick=${onClose}>Close</button>
+      </div>
+      ${!r ? html`<span class="loading loading-dots mt-4"></span>`
+        : r.missing ? html`<p class="mt-3 opacity-70">Not found in the data folder.</p>`
+        : html`<pre class="mono text-xs whitespace-pre-wrap break-words mt-3 bg-base-200 rounded-lg p-3">${JSON.stringify(r.row, null, 2)}</pre>`}
+    </div></div>`;
+}
+
+// ---------------------------------------------------------------- app
+
+function App() {
+  const sys = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  const [theme, setTheme] = useState(store("cr-theme", sys));
+  const [big, setBig] = useState(store("cr-big", false));
+  const [status, setStatus] = useState("starting");
+  const [ready, setReady] = useState(false);
+  const [fatal, setFatal] = useState("");
+  const [s, setS] = useState(null);
+  const [sel, setSel] = useState(null);
+  const [rec, setRec] = useState(null);
+
+  useEffect(() => { document.documentElement.setAttribute("data-theme", theme); save("cr-theme", theme); }, [theme]);
+  useEffect(() => { document.documentElement.classList.toggle("big", big); save("cr-big", big); }, [big]);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        for (;;) {
+          const st = await api("/api/status");
+          if (!live) return;
+          if (st.ready) break;
+          setStatus(st.status);
+          await new Promise((r) => setTimeout(r, 700));
+        }
+        setS(await api("/api/summary"));
+        setReady(true);
+      } catch (e) { setFatal(e.message); }
+    })();
+    return () => { live = false; };
+  }, []);
+
+  if (fatal) return html`<div class="h-full grid place-items-center p-8"><div class="alert alert-error max-w-lg">Could not start: ${fatal}</div></div>`;
+  if (!ready) return html`<div class="h-full grid place-items-center"><div class="flex items-center gap-3 opacity-70">
+    <span class="loading loading-spinner"></span>Engine: ${status}...</div></div>`;
+
+  const codes = [...new Set(Object.values(s.by_decision).flatMap((m) => Object.keys(m)))].sort();
+  return html`<div class="h-full flex flex-col">
+    <${Header} s=${s} theme=${theme} setTheme=${setTheme} big=${big} setBig=${setBig} />
+    <main class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(20rem,36%)_1fr] grid-rows-[50vh_auto] lg:grid-rows-1 overflow-auto lg:overflow-hidden">
+      <${Queue} codes=${codes} selected=${sel} onSelect=${setSel} />
+      <section class="lg:overflow-auto min-w-0"><${Case} hid=${sel} onOpen=${setRec} /></section>
+    </main>
+    <${RecordModal} id=${rec} onClose=${() => setRec(null)} />
+  </div>`;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(html`<${App} />`);
 </script>
 </body>
 </html>
