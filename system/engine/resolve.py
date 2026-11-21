@@ -386,7 +386,27 @@ def _name_index(data) -> Dict[str, List[str]]:
     return c["name_index"]
 
 
+def _use_file_variants(data) -> None:
+    """Once per Data: point C's matcher at name_variants.json when the folder has one."""
+    c = _cache(data)
+    if c.get("variants_loaded"):
+        return
+    c["variants_loaded"] = True
+    nv = getattr(data, "name_variants", None)
+    if nv and _names is not None and hasattr(_names, "use_variants"):
+        try:
+            _names.use_variants(nv)
+        except Exception:
+            pass
+
+
 def _variant_forms(part: str, data) -> List[str]:
+    _use_file_variants(data)
+    if _names is not None and hasattr(_names, "variant_forms"):
+        try:
+            return sorted(set(_names.variant_forms(part)) | {part})
+        except Exception:
+            pass
     forms = {part}
     groups = getattr(_names, "VARIANTS", None) if _names is not None else None
     if not groups and getattr(data, "name_variants", None):
@@ -621,6 +641,7 @@ def _linked_records(alert: dict, data) -> Tuple[List[str], List[str], bool]:
 
 
 def resolve(alert: dict, data) -> Resolution:
+    _use_file_variants(data)
     linked, path, has_link = _linked_records(alert, data)
     if has_link and linked:
         seeds = [r for r in linked if _fits(alert, data.customers[r])] if len(linked) > 1 else linked
