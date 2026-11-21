@@ -5,6 +5,7 @@ Public API (PLAN.md section 5C):
     parts_match(a, b) -> bool
     names_agree(a, b, company=False) -> bool
     real_part_count(name, company=False) -> int
+    variant_forms(part) -> List[str]   # active variant group members, for blocking
     use_variants(name_variants)        # Data.name_variants (parsed name_variants.json) or None
     names_contradict(verified, others, company=False) -> bool   # safe NAME_MISMATCH_VERIFIED test
 
@@ -176,6 +177,7 @@ _MAX_JOIN = 3      # a part written together can cover up to 3 parts written apa
 _MAX_PARTS = 16    # bitmask search bound; longer names keep their first parts
 
 _variant_index = {}   # type: Dict[str, FrozenSet[int]]
+_variant_groups = []  # type: List[Tuple[str, ...]]
 _legal_forms = frozenset()  # type: FrozenSet[str]
 
 
@@ -303,13 +305,19 @@ def _as_list(v: object) -> List[str]:
 
 
 def _build(groups: Iterable[Iterable[str]], legal: Iterable[str]) -> None:
-    global _variant_index, _legal_forms
+    global _variant_index, _legal_forms, _variant_groups
     index = {}  # type: Dict[str, set]
+    members = []  # type: List[Tuple[str, ...]]
     for gid, group in enumerate(groups):
+        keys = []  # type: List[str]
         for word in group:
             k = _key(word)
             if k:
                 index.setdefault(k, set()).add(gid)
+                if k not in keys:
+                    keys.append(k)
+        members.append(tuple(sorted(keys)))
+    _variant_groups = members
     _variant_index = {k: frozenset(v) for k, v in index.items()}
     _legal_forms = frozenset(k for k in (_key(w) for w in legal) if k)
     _parts_cached.cache_clear()
@@ -344,6 +352,18 @@ def use_variants(name_variants: Optional[object]) -> None:
     groups = _as_groups(variants_obj)
     legal = _as_list(legal_obj) if legal_obj is not None else []
     _build(groups if groups else VARIANTS, legal if legal else LEGAL_FORMS)
+
+
+def variant_forms(part: str) -> List[str]:
+    """The part plus every member of every active variant group that lists it,
+    normalised and sorted (for blocking indexes in resolve.py)."""
+    k = _key(part or "")
+    if not k:
+        return []
+    forms = {k}
+    for gid in sorted(_variant_index.get(k, ())):
+        forms.update(_variant_groups[gid])
+    return sorted(forms)
 
 
 # ---------------------------------------------------------------------------
