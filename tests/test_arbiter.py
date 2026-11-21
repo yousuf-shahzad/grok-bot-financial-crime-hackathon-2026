@@ -296,6 +296,26 @@ class ContractGaps(unittest.TestCase):
             {"error_in": "unsure", "significant_missed_facts": [], "explanation": "no"})
         self.assertEqual((final.decision, final.reason_code, path), (REVIEW, "INSUFFICIENT_DATA", "screen_failed"))
 
+    def test_screener_explanation_ids_are_scrubbed(self):
+        self._stub({"error_in": "deterministic", "significant_missed_facts": [],
+                    "explanation": "Note NOTE-T9 agrees, but H-NO and ACC-NO and KYC-BAD do not."})
+        final, _ = arbiter.resolve(det(), view(SAME, "NAME_DOB_MATCH"), self.case("NOTE-T9", "CUS-T1"))
+        self.assertIn("NOTE-T9", final.reason)
+        self.assertIn("a record", final.reason)
+        self.assertNotIn("H-NO", final.reason)
+        self.assertNotIn("ACC-NO", final.reason)
+        self.assertNotIn("KYC-BAD", final.reason)
+        self.assertTrue(2 <= sentences(final.reason) <= 4, final.reason)
+
+    def test_screener_explanation_stays_within_four_sentences(self):
+        expl = " ".join("Sentence %d mentions KYC-BAD." % i for i in range(1, 9))
+        self._stub({"error_in": "deterministic", "significant_missed_facts": [], "explanation": expl})
+        final, _ = arbiter.resolve(det(), view(SAME, "NAME_DOB_MATCH"), self.case("CUS-T1"))
+        self.assertTrue(2 <= sentences(final.reason) <= 4, final.reason)
+        self.assertNotIn("KYC-BAD", final.reason)
+        self.assertNotIn("Sentence 8", final.reason)
+        self.assertIn("Sentence 1", final.reason)
+
     def test_disable_keeps_rules_output(self):
         os.environ["LLM_DISABLE"] = "1"
         try:
