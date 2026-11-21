@@ -1,6 +1,6 @@
 # Team rules for every agent
 
-**What we are building:** an entry for Track 2 ("Is my customer sanctioned?") of the Grok Bot London Financial Crime Hackathon, Saturday 21 November 2026, code freeze 17:00. Read before touching any code: [docs/track2/BRIEF.md](docs/track2/BRIEF.md) (task, deliverable, scoring), [docs/track2/SPEC.md](docs/track2/SPEC.md) (the decision rules), [docs/track2/DATA.md](docs/track2/DATA.md) (files and joins), [docs/track2/SCOPE.md](docs/track2/SCOPE.md) (what is allowed). Hard rules are in section 6.
+**What we are building:** an entry for Track 2 ("Is my customer sanctioned?") of the Grok Bot London Financial Crime Hackathon, Saturday 21 November 2026, code freeze 17:00. Read before touching any code: [docs/track2/BRIEF.md](docs/track2/BRIEF.md) (task, deliverable, scoring), [docs/track2/SPEC.md](docs/track2/SPEC.md) (the decision rules), [docs/track2/DATA.md](docs/track2/DATA.md) (files and joins), [docs/track2/SCOPE.md](docs/track2/SCOPE.md) (what is allowed), and **[docs/track2/PLAN.md](docs/track2/PLAN.md) (who builds what, shared data shapes, timeline)**. Hard rules are in section 6. Today's build is the deterministic SOP engine only: no LLM code until the lead says so.
 
 ## 1. The board (pinned GitHub issue)
 
@@ -33,11 +33,16 @@ Humans over agents. Only the team lead reassigns work between teammates. If anyo
 
 ## 4. Who owns what
 
-Empty for now. The team lead fills it in when work is split up. Until a row covers a file, ask on the board before editing it.
+Full module specs, shared data shapes and the timeline are in [docs/track2/PLAN.md](docs/track2/PLAN.md). B, C and D are provisional: only the lead reassigns. For a file not listed here, ask on the board before editing it.
 
-| Area | Owner (GitHub login) | Folders |
+| Area | Owner (GitHub login) | Files |
 |---|---|---|
-| | | |
+| A. Loader + customer resolver | `@yousuf-shahzad` | `system/engine/load.py`, `system/engine/resolve.py` |
+| B. Text facts (hit facts, customer notes) | `@DiamondNexus` | `system/engine/hitfacts.py`, `system/engine/notes.py` |
+| C. Matchers (names, dates, countries) | `@kendricklow2008` | `system/engine/names.py`, `system/engine/dates.py`, `system/engine/countries.py` |
+| D. Shared model, judge, output, entry point, scorer | `@ThomasGrattoniMay` | `system/engine/model.py` (only D edits it), `system/engine/judge.py`, `system/engine/explain.py`, `system/main.py`, `system/run`, `tools/score.py` |
+| Docs, AGENTS.md, board tooling | `@yousuf-shahzad` | `docs/`, `AGENTS.md`, `tools/board`, `.claude/` |
+| Tests | each module's owner | `tests/test_<module>.py` |
 
 ## 5. First-time setup (agents: walk your human through this)
 
