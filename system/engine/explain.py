@@ -78,13 +78,14 @@ def _check_facts(p: Person) -> List[Fact]:
     return [f for f in out if f.source and not str(f.source).startswith("CUS-")]
 
 
-def _cite(people: List[Person], facts: Iterable, records: bool = True) -> List[str]:
+def _cite(people: List[Person], facts: Iterable, records: bool = True, checks: bool = True) -> List[str]:
     ev = set()
     for p in people:
         if records:
             ev.update(p.record_ids)
-        for f in _check_facts(p):
-            ev.add(str(f.source))
+        if checks:
+            for f in _check_facts(p):
+                ev.add(str(f.source))
     for f in facts:
         s = getattr(f, "source", None)
         if s and not str(s).startswith(NO_CITE):
@@ -120,6 +121,7 @@ def make(hit: HitProfile, decision: str, code: str, customer_record_id: Optional
     used: List = []
     s: List[str] = []
     records = True  # cite the person's CUS- records (off when a verified fact alone decided it)
+    checks = True   # cite the latest approved check
     cust = ("the customer record %s" % customer_record_id
             if customer_record_id and customer_record_id != "AMBIGUOUS" else "the customer")
 
@@ -207,7 +209,15 @@ def make(hit: HitProfile, decision: str, code: str, customer_record_id: Optional
 
     else:  # REVIEW / INSUFFICIENT_DATA
         why = ctx.get("why")
-        used.extend(f for p in people for f in p.countries if f.kind == "lived_in")
+        # a lived-in note that alone ties the customer to a hit country is what keeps the hit from
+        # clearing on location: then that note is the deciding evidence
+        hit_keys = {_clean(f.value).lower() for f in ctx.get("hcountries") or []}
+        other = {_clean(f.value).lower() for p in people for f in p.countries if f.kind != "lived_in"}
+        decisive = [f for p in people for f in p.countries if f.kind == "lived_in"
+                    and _clean(f.value).lower() in hit_keys and _clean(f.value).lower() not in other]
+        if decisive and why == "not_enough":
+            used.extend(decisive)
+            records = checks = False
         if why == "no_customer":
             s.append("No customer record could be found that fits the screened details.")
             s.append("Without the customer's own facts the hit can be neither confirmed nor cleared.")
@@ -230,6 +240,10 @@ def make(hit: HitProfile, decision: str, code: str, customer_record_id: Optional
                      "so an analyst must decide.")
         else:
             s.append("No contradiction rules the hit out, but there is not enough agreement to confirm it.")
+            if decisive:
+                f = decisive[0]
+                s.append("A customer note%s says they lived in %s, which the hit is also tied to, so the "
+                         "hit cannot be cleared on location." % (_src(f), _clean(f.value)))
             s.append(_missing_sentence(hit, ctx))
             if hit.missing:
                 s.append("Known gaps: %s." % _clean("; ".join(hit.missing[:2]).replace(";", ",")))
@@ -239,7 +253,7 @@ def make(hit: HitProfile, decision: str, code: str, customer_record_id: Optional
         s.append("The hit is sent to an analyst for review.")
     return Decision(hit_id=hit.hit_id, alert_id=hit.alert_id, decision=decision, reason_code=code,
                     customer_record_id=customer_record_id, reason=" ".join(s),
-                    evidence=_cite(people, [u for u in used if u is not None], records))
+                    evidence=_cite(people, [u for u in used if u is not None], records, checks))
 
 
 def ambiguous_same(first: Decision, people: List[Person]) -> str:
