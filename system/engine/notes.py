@@ -1,23 +1,33 @@
 """Customer note -> NoteFacts. Module B.
 
-parse(note) -> NoteFacts. note is a raw notes.jsonl dict or a plain string.
+parse(note) -> NoteFacts. `note` is a raw notes.jsonl row (load.py keeps the
+dict, including channel and note_id) or a plain string.
 
-resolve.py reads: verified, rejected, name, dob (PartialDate or str),
-doc_country, lived_in (list), date. It stores the note_id itself as Fact.source.
+resolve.py reads verified, rejected, name, dob (PartialDate or str),
+doc_country, lived_in (list of country names) and date. It stamps
+note["note_id"] onto the Facts it builds, which is what explain.py cites.
+`source` on NoteFacts is that same NOTE- id so the id travels with the parse
+result too.
 
-verified is true only when the onboarding sentence is complete: a provider
-validated or completed identity verification of NAME, with one born/DOB date
-and one document country. A missing part stays unknown. A wrong verified name
-can clear a hit.
+Slots, not sentence templates. channel decides which slots apply:
 
-rejected is true on rejected / could not verify / expired, and those fields
-are not evidence. If success and failure both appear, both flags stay false.
+- kyc: a successful check. Name is the longest run of 2+ ALL-CAPS tokens
+  (accents allowed; placeholder-only runs like N/A or 0000 are skipped).
+  dob is the date nearest DOB/born/date of birth, else a date in parentheses.
+  The other date, nearest "on" / "as of", is the check date (`date`).
+  doc_country is countries.normalise of the phrase after from / in / issued in /
+  issued by / originating from / ctry, or before a document type, or in
+  brackets. verified needs a success word, no failure word, and all three slots.
+  rejected / failed / expired / could not -> rejected, and those slots are
+  not evidence.
+- email, phone: if a real country (capitalised span, countries.normalise)
+  AND a residence or work word appear, lived_in is that country. verified stays
+  false. A country may be named first ("Nigeria was the location where...").
+- app, or no channel: ignore. Unknown stays unknown.
 
-lived_in is read either way ("used to live in", "moved from", "previously
-lived in", "formerly lived in"). date is the note's created_at string.
-
-Patterns follow the PLAN/SPEC shapes. This environment has no notes.jsonl,
-so a differently worded unseen note stays unknown.
+Slash dates are day first; dates.parse does that. countries.normalise returns
+None for anything it does not know, including "It" once we refuse 1-3 letter
+tokens (those are "It"/"In", which normalise to Italy/India).
 """
 from __future__ import annotations
 
@@ -25,8 +35,19 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from .hitfacts import _find_date, _normalise
 from .model import PartialDate
+
+try:
+    from .countries import normalise as _normalise_country
+except ImportError:  # module C not importable
+    def _normalise_country(value):
+        return None
+
+try:
+    from .dates import parse as _parse_date
+except ImportError:
+    def _parse_date(value):
+        return None
 
 
 @dataclass
@@ -37,126 +58,279 @@ class NoteFacts:
     dob: Optional[PartialDate] = None
     doc_country: Optional[str] = None
     lived_in: List[str] = field(default_factory=list)
-    date: Optional[str] = None  # created_at; resolve parses it when it is not a PartialDate
+    date: Optional[object] = None  # PartialDate of the check, or created_at str
+    source: Optional[str] = None   # NOTE-... the facts came from
 
 
-_NAME_STOP = r"born|dob|d\.?o\.?b|date|document"
-_VERIFY_NAME = re.compile(
-    r"(?i)\b(?:validated|completed)\b(?:\s+[A-Za-z]+){0,6}?\s+"
-    r"identity\s+verification\s+of\s+"
-    r"(?P<name>[A-Za-z][A-Za-z'’\-]*"
-    r"(?:\s+(?!(?:" + _NAME_STOP + r")\b)[A-Za-z][A-Za-z'’\-]*){0,5})"
+_SUCCESS = re.compile(
+    r"(?i)\b(?:verified|confirmed|validated|passed|cleared|matches|processed|approved|completed)\b"
+    r"|\bsuccessful(?:\s+check)?\b")
+_FAILURE = re.compile(r"(?i)\b(?:rejected|failed|expired|could not|couldn't|unable to)\b")
+_NEGATED = re.compile(r"(?i)\b(?:not|never|no|un)\b(?:\s+\w+){0,2}\s*$")
+_DOB_KW = re.compile(r"(?i)\b(?:d\.?o\.?b\.?|date of birth|birth date|born)\b")
+_CHECK_KW = re.compile(r"(?i)\b(?:as of|on)\b")
+_DOC = re.compile(
+    r"(?i)\b(?:passports?|driving licences?|driving licenses?|national ids?|"
+    r"national identity cards?|identity cards?|id cards?)\b")
+_RESIDENCE = re.compile(
+    r"(?i)live|lived|living|resid|home|based|settled|relocat|work|employ|job|position")
+_DATE_RES = (
+    re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
+    re.compile(r"\b\d{1,2}/\d{1,2}/\d{4}\b"),
+    re.compile(r"\b\d{1,2}\s+[A-Za-z]+\s+\d{4}\b"),
+    re.compile(r"\b[A-Za-z]+\s+\d{1,2},\s*\d{4}\b"),
 )
-_DOB_CUE = re.compile(
-    r"(?i)\b(?:born(?:\s+on|\s+in)?|date\s+of\s+birth|birth\s+date|d\.?o\.?b\.?)"
-    r"\s*[:\-]?\s*([^.;\n]{1,60})"
+_CUES = (
+    re.compile(r"(?i)\boriginating from\s+"),
+    re.compile(r"(?i)\bissued in\s+"),
+    re.compile(r"(?i)\bissued by\s+"),
+    re.compile(r"(?i)\bfrom the\s+"),
+    re.compile(r"(?i)\bctry\s+"),
+    re.compile(r"(?i)\bfrom\s+"),
+    re.compile(r"(?i)\bin\s+"),
 )
-_DOC_COUNTRY = re.compile(
-    r"(?i)\b(?:document\s+(?:issued\s+in|issued\s+by|from)|issued\s+in)\s+([^.;\n]{2,60})"
-)
-_HARD_FAILURE = re.compile(
-    r"(?i)\bcould not verify\b|\bcouldn't verify\b|\bcould not be verified\b|\bunable to verify\b"
-)
-_SOFT_FAILURE = re.compile(r"(?i)\b(?:rejected|expired)\b")
-_NEGATED = re.compile(r"(?i)\b(?:not|never|no)\b(?:\s+\w+){0,3}\s*$")
-_LIVED = (
-    re.compile(r"(?i)\bused to live in\s+([^.;\n]+)"),
-    re.compile(r"(?i)\bpreviously lived in\s+([^.;\n]+)"),
-    re.compile(r"(?i)\bformerly lived in\s+([^.;\n]+)"),
-    re.compile(r"(?i)\bmoved from\s+([^.;\n]+)"),
-)
+_WORD = re.compile(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]*")
+_TOKEN = re.compile(r"[A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9'’/\-]*")
+_PLACEHOLDERS = {"na", "n/a", "n.a", "n.a.", "none", "unknown", "test", "xxx", "null", "nil", "0000"}
+# All-caps cue words sit next to the name. They are not name tokens.
+_NAME_BREAKS = {"dob", "d.o.b", "d.o.b.", "born", "date", "birth", "of"}
 
 
 def parse(note) -> NoteFacts:
-    """Unknown unless the verification sentence or a failure wording is clear."""
-    text, date = _text_and_date(note)
-    lived = _lived_in(text)
-    failure = _has_failure(text)
-    name, dob, country = _verification(text)
-    success = name is not None and dob is not None and country is not None
-    if failure and success:
-        return NoteFacts(lived_in=lived, date=date)
-    if failure:
-        return NoteFacts(rejected=True, lived_in=lived, date=date)
-    if success:
-        return NoteFacts(
-            verified=True, name=name, dob=dob, doc_country=country,
-            lived_in=lived, date=date)
-    return NoteFacts(lived_in=lived, date=date)
+    """Slots from one note. A missing slot stays missing."""
+    text, created, channel, source = _parts(note)
+    if channel == "app" or not text:
+        return NoteFacts(source=source)
+    if channel == "kyc":
+        return _parse_kyc(text, created, source)
+    if channel in ("email", "phone"):
+        return _parse_residence(text, created, source)
+    return NoteFacts(source=source, date=created)
 
 
-def _has_failure(text):
-    if _HARD_FAILURE.search(text):
-        return True
-    for match in _SOFT_FAILURE.finditer(text):
-        window = text[max(0, match.start() - 40):match.start()]
+def _parts(note):
+    if isinstance(note, str):
+        return note, None, "", None
+    if not isinstance(note, dict):
+        return "", None, "", None
+    text = "" if note.get("text") is None else str(note.get("text"))
+    created = note.get("created_at")
+    created = str(created).strip() if created is not None and str(created).strip() else None
+    channel = str(note.get("channel") or "").strip().casefold()
+    source = note.get("note_id")
+    source = str(source).strip() if source is not None and str(source).strip() else None
+    return text, created, channel, source
+
+
+def _flag(pattern, text):
+    for match in pattern.finditer(text):
+        window = text[max(0, match.start() - 24):match.start()]
         if _NEGATED.search(window):
             continue
         return True
     return False
 
 
-def _text_and_date(note):
-    if isinstance(note, str):
-        return note, None
-    if not isinstance(note, dict):
-        return "", None
-    text = "" if note.get("text") is None else str(note.get("text"))
-    created = note.get("created_at")
-    if created is None or not str(created).strip():
-        return text, None
-    return text, str(created).strip()
+def _is_placeholder(token):
+    folded = token.casefold().strip(".")
+    if folded in _PLACEHOLDERS or folded.replace("/", "") in {"na", "na."}:
+        return True
+    return folded.isdigit()
 
 
-def _verification(text):
-    names = []
-    for match in _VERIFY_NAME.finditer(text):
-        cleaned = " ".join(match.group("name").split()).strip(" .;,-")
-        if cleaned and cleaned.casefold() not in [item.casefold() for item in names]:
-            names.append(cleaned)
-    if len(names) != 1:
-        return None, None, None
-    dobs = []
-    for match in _DOB_CUE.finditer(text):
-        parsed = _find_date(match.group(1))
-        if parsed is None or parsed.year is None or parsed in dobs:
-            continue
-        dobs.append(parsed)
-    countries = []
-    for match in _DOC_COUNTRY.finditer(text):
-        place = _clean_place(match.group(1))
-        norm = _normalise(place) if place else None
-        if norm and norm.casefold() not in [item.casefold() for item in countries]:
-            countries.append(norm)
-    dob = dobs[0] if len(dobs) == 1 else None
-    country = countries[0] if len(countries) == 1 else None
-    return names[0], dob, country
+def _is_caps(token):
+    if token.casefold().strip(".") in _NAME_BREAKS:
+        return False
+    letters = [ch for ch in token if ch.isalpha()]
+    if letters and all(ch.isupper() for ch in letters):
+        return True
+    return _is_placeholder(token)
 
 
-def _lived_in(text):
+def _name(text):
+    runs = []
+    current = []
+    for match in _TOKEN.finditer(text):
+        token = match.group(0)
+        if _is_caps(token):
+            current.append(token)
+        elif current:
+            runs.append(current)
+            current = []
+    if current:
+        runs.append(current)
+    runs.sort(key=len, reverse=True)
+    for run in runs:
+        real = [token for token in run if not _is_placeholder(token)]
+        if len(real) >= 2:
+            return " ".join(real)
+    return None
+
+
+def _dates(text):
     found = []
-    seen = []
-    hits = []
-    for pattern in _LIVED:
+    occupied = []
+
+    def overlaps(start, end):
+        return any(not (end <= left or start >= right) for left, right in occupied)
+
+    for pattern in _DATE_RES:
         for match in pattern.finditer(text):
-            hits.append((match.start(), match.group(1)))
-    hits.sort(key=lambda item: item[0])
-    for _, fragment in hits:
-        for piece in re.split(r"(?i)\s+to\s+", fragment.strip(), maxsplit=1):
-            place = _clean_place(piece)
-            norm = _normalise(place) if place else None
-            if not norm or norm.casefold() in seen:
+            if overlaps(match.start(), match.end()):
                 continue
-            seen.append(norm.casefold())
-            found.append(norm)
+            parsed = _parse_date(match.group(0))
+            if parsed is None or parsed.year is None:
+                continue
+            found.append((match.start(), match.end(), parsed))
+            occupied.append((match.start(), match.end()))
     return found
 
 
-def _clean_place(raw):
-    text = " ".join(str(raw).split())
-    text = re.split(r"(?i)\s+(?:until|before|after|during|while|in|on|from)\b", text, maxsplit=1)[0]
-    text = re.sub(r"(?i)^(?:the|a)\s+", "", text).strip(" .;,-")
-    words = text.split()
-    if not words or len(words) > 6:
-        return ""
-    return " ".join(words)
+def _gap(start, end, other_start, other_end):
+    if end <= other_start:
+        return other_start - end
+    if other_end <= start:
+        return start - other_end
+    return 0
+
+
+def _nearest(candidates, anchors, limit):
+    best = None
+    for candidate in candidates:
+        distance = min(_gap(candidate[0], candidate[1], anchor[0], anchor[1]) for anchor in anchors)
+        after = 0 if candidate[0] >= min(anchor[1] for anchor in anchors) else 1
+        key = (distance, after, candidate[0])
+        if best is None or key < best[0]:
+            best = (key, candidate)
+    if best is None or best[0][0] > limit:
+        return None
+    return best[1]
+
+
+def _pick_dates(text, found):
+    dob = None
+    keywords = [(match.start(), match.end()) for match in _DOB_KW.finditer(text)]
+    if keywords:
+        dob = _nearest(found, keywords, 80)
+    if dob is None:
+        paren = []
+        for match in re.finditer(r"\(([^)]*)\)", text):
+            for item in found:
+                if match.start() <= item[0] and item[1] <= match.end():
+                    paren.append(item)
+        if len(paren) == 1:
+            dob = paren[0]
+    rest = [item for item in found if dob is None or item[0] != dob[0]]
+    checks = [(match.start(), match.end()) for match in _CHECK_KW.finditer(text)]
+    check = _nearest(rest, checks, 40) if checks and rest else None
+    if dob is None and check is not None:
+        others = [item for item in found if item[0] != check[0]]
+        if len(others) == 1:
+            dob = others[0]
+    elif dob is not None and check is None:
+        others = [item for item in found if item[0] != dob[0]]
+        if len(others) == 1:
+            check = others[0]
+    return dob, check
+
+
+def _span_country(fragment):
+    words = _WORD.findall(fragment)
+    for size in range(min(4, len(words)), 0, -1):
+        for index in range(0, len(words) - size + 1):
+            chunk = words[index:index + size]
+            if not chunk[0][:1].isupper():
+                continue
+            if size == 1 and len(chunk[0]) < 4:
+                continue
+            name = _normalise_country(" ".join(chunk))
+            if name:
+                return name
+    return None
+
+
+def _document_country(text):
+    found = []
+
+    def add(name):
+        if name and name not in found:
+            found.append(name)
+
+    for pattern in _CUES:
+        for match in pattern.finditer(text):
+            fragment = text[match.end():match.end() + 48]
+            fragment = re.split(r"[,.;:\n]", fragment, maxsplit=1)[0]
+            add(_span_country(fragment))
+    for match in _DOC.finditer(text):
+        words = _WORD.findall(text[max(0, match.start() - 48):match.start()])
+        for size in (3, 2, 1):
+            if len(words) < size:
+                continue
+            chunk = words[-size:]
+            if size == 1 and len(chunk[0]) < 4:
+                continue
+            if not chunk[0][:1].isupper():
+                continue
+            name = _normalise_country(" ".join(chunk))
+            if name:
+                add(name)
+                break
+    for match in re.finditer(r"\(([^)]{2,48})\)", text):
+        inner = match.group(1).strip()
+        if _parse_date(inner) is not None:
+            continue
+        add(_span_country(inner))
+    return found[0] if found else None
+
+
+def _countries_in(text):
+    tokens = _WORD.findall(text)
+    found = []
+    seen = []
+    occupied = [False] * len(tokens)
+    for size in (4, 3, 2, 1):
+        if size > len(tokens):
+            continue
+        for index in range(0, len(tokens) - size + 1):
+            if any(occupied[index:index + size]):
+                continue
+            if not tokens[index][:1].isupper():
+                continue
+            if size == 1 and len(tokens[index]) < 4:
+                continue
+            name = _normalise_country(" ".join(tokens[index:index + size]))
+            if not name:
+                continue
+            for mark in range(index, index + size):
+                occupied[mark] = True
+            key = name.casefold()
+            if key in seen:
+                continue
+            seen.append(key)
+            found.append(name)
+    return found
+
+
+def _parse_kyc(text, created, source):
+    failure = _flag(_FAILURE, text)
+    success = _flag(_SUCCESS, text)
+    if failure or not success:
+        return NoteFacts(rejected=failure, date=created, source=source)
+    name = _name(text)
+    found = _dates(text)
+    dob_item, check_item = _pick_dates(text, found)
+    country = _document_country(text)
+    dob = dob_item[2] if dob_item is not None else None
+    check = check_item[2] if check_item is not None else None
+    when = check if check is not None else created
+    if name and dob is not None and country:
+        return NoteFacts(
+            verified=True, name=name, dob=dob, doc_country=country,
+            date=when, source=source)
+    return NoteFacts(date=when, source=source)
+
+
+def _parse_residence(text, created, source):
+    if not _RESIDENCE.search(text):
+        return NoteFacts(date=created, source=source)
+    return NoteFacts(lived_in=_countries_in(text), date=created, source=source)
