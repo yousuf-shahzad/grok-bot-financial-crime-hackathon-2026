@@ -63,6 +63,21 @@ class KycSlotsTest(unittest.TestCase):
         self.assertEqual(facts.doc_country, "Brazil")
         self.assertEqual(facts.name, "AMINA OKONKWO")
 
+    def test_country_is_and_country_of_origin(self):
+        samples = [
+            ("Provider cleared the passport of ADA EXAMPLE, born 17 February 1968, on 2024-01-01. "
+             "The document country is Portugal.", "Portugal"),
+            ("Provider vetted the national ID for ADA EXAMPLE, DOB 1968-02-17, checked on 2024-01-01. "
+             "Country of origin: Kenya.", "Kenya"),
+            ("Provider confirmed the driving licence of ADA EXAMPLE (born 1968-02-17) on 2024-01-01. "
+             "Document origin is Canada.", "Canada"),
+        ]
+        for text, country in samples:
+            facts = parse(kyc(text))
+            self.assertTrue(facts.verified, text)
+            self.assertEqual(facts.doc_country, country, text)
+            self.assertEqual(facts.name, "ADA EXAMPLE")
+
     def test_country_phrases(self):
         samples = [
             ("passport from the United Kingdom for ADA EXAMPLE, born 1968-02-17, on 2024-01-01.",
