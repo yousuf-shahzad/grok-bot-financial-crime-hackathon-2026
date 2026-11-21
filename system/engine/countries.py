@@ -262,11 +262,17 @@ _LOOKUP.setdefault("uk", "United Kingdom")   # not ISO, but common
 
 
 def normalise(s) -> Optional[str]:
-    """Canonical country name, or None if it is not a recognised country."""
+    """Canonical country name, or None if it is not a recognised country.
+
+    A 2-3 letter value is a code only when written in capitals ("GB", "USA"), so ordinary
+    words like "in", "and", "is" are never countries.
+    """
     if s is None:
         return None
     k = _key(s)
     if not k or k in NOT_COUNTRIES:
+        return None
+    if len(k.replace(" ", "")) <= 3 and not str(s).strip().isupper():
         return None
     return _LOOKUP.get(k)
 

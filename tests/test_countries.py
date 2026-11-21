@@ -42,16 +42,20 @@ class NormaliseNamesTest(unittest.TestCase):
 class NormaliseCodesTest(unittest.TestCase):
     def test_iso2(self):
         self.assertEqual(N("FR"), "France")
-        self.assertEqual(N("de"), "Germany")
+        self.assertEqual(N("DE"), "Germany")
         self.assertEqual(N("GB"), "United Kingdom")
         self.assertEqual(N("NG"), "Nigeria")
 
     def test_iso3(self):
         self.assertEqual(N("FRA"), "France")
-        self.assertEqual(N("deu"), "Germany")
+        self.assertEqual(N("DEU"), "Germany")
         self.assertEqual(N("GBR"), "United Kingdom")
         self.assertEqual(N("USA"), "United States")
         self.assertEqual(N("U.S.A."), "United States")
+
+    def test_lowercase_short_words_are_not_codes(self):
+        for s in ["in", "and", "is", "to", "id", "de", "deu"]:
+            self.assertIsNone(N(s), s)
 
     def test_names_and_codes_agree(self):
         for name, a2, a3 in [("Portugal", "PT", "PRT"), ("Kenya", "KE", "KEN"),
