@@ -70,15 +70,23 @@ _MONTHS.update({"jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
 _YEAR_RANGE = re.compile(r"^(\d{4})\s*(?:/|\u2013|\u2014|-|\bor\b)\s*(\d{4})$", re.IGNORECASE)
 _REPORT_LINE = re.compile(r"^According to ([^;]+);\s*([^:]+):\s*(\S.*)$")
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
+# An age has to be tied to an age word. A bare number, or "was 50" with no
+# person, is not an age (a fine or a count must not become a birth year).
 _AGE_RES = (
-    re.compile(r"\baged\s+(\d{1,3})(?:\s+years?\s+old)?\s+(?:in|on|as of|at)\s+([^.;\n]{1,60})", re.I),
-    re.compile(r"\bage\s+(\d{1,3})\s+(?:in|on|as of|at)\s+([^.;\n]{1,60})", re.I),
-    re.compile(r"\b(?:was|were)\s+(\d{1,3})\s+years?\s+old\s+(?:in|on|as of|at)\s+([^.;\n]{1,60})", re.I),
-    re.compile(r"\b(\d{1,3})\s+years?\s+old\s+(?:in|on|as of|at)\s+([^.;\n]{1,60})", re.I),
+    re.compile(r"\baged\s+(\d{2,3})\b", re.I),
+    re.compile(r"\bage\s+of\s+(\d{2,3})\b", re.I),
+    re.compile(r"\b(?:he|she|they)\s+was\s+(\d{2,3})\b", re.I),
+    re.compile(r"\b(\d{2,3})\s*-\s*year\s*-\s*old\b", re.I),
+    re.compile(r"\b(\d{2,3})\s+years?\s+old\b", re.I),
+    re.compile(r"(?:,|\()\s*(\d{2,3})\s*(?:,|\))"),
 )
 _BIRTH_RE = re.compile(
-    r"\b(?:born(?:\s+on|\s+in)?|date\s+of\s+birth|birth\s+date|d\.?o\.?b\.?)\s*[:\-]?\s*([^.;\n]{1,60})",
+    r"\b(?:was\s+born\s+on|born(?:\s+on|\s+in)?|date\s+of\s+birth|birth\s+date|d\.?o\.?b\.?)"
+    r"\s*[:\-]?\s*([^.;\n]{1,60})",
     re.I)
+_SENT_DATE = re.compile(
+    r"(?i)\b(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{4}|"
+    r"\d{1,2}\s+[A-Za-z]+\s+\d{4}|[A-Za-z]+\s+\d{1,2},\s*\d{4}|[A-Za-z]+\s+\d{4})\b")
 
 
 def extract(hit: dict, data) -> HitProfile:
@@ -310,8 +318,13 @@ def _countries(row, hit_id):
     facts = []
     seen = []
 
-    def add(raw, kind):
+    def add_place(raw, kind):
+        """A country, or '<city>, <region>, <Country>': whole value, else the last part."""
         name = _normalise(raw)
+        if not name:
+            last = _last_part(raw)
+            if last and last != str(raw).strip():
+                name = _normalise(last)
         if not name:
             return
         key = name.casefold()
@@ -321,15 +334,15 @@ def _countries(row, hit_id):
         facts.append(Fact(value=name, source=hit_id, kind=kind))
 
     for value in _as_list(row.get("countries")):
-        add(value, "country")
+        add_place(value, "country")
     for value in _as_list(row.get("nationality")):
-        add(value, "nationality")
+        add_place(value, "nationality")
     for value in _as_list(row.get("citizenship")):
-        add(value, "citizenship")
+        add_place(value, "citizenship")
     for address in _as_list(row.get("addresses")):
-        add(_last_part(address), "address")
+        add_place(address, "address")
     for place in _as_list(row.get("place_of_birth")):
-        add(_last_part(place), "place_of_birth")
+        add_place(place, "place_of_birth")
     return facts
 
 
@@ -373,22 +386,20 @@ def _births_from_text(text, source):
     def overlaps(start, end):
         return any(not (end <= left or start >= right) for left, right in occupied)
 
-    for pattern in _AGE_RES:
-        for match in pattern.finditer(text):
-            if overlaps(match.start(), match.end()):
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
+        dates = _sentence_dates(sentence)
+        for match in _age_matches(sentence):
+            if overlaps(match[0], match[1]):
                 continue
-            age = int(match.group(1))
-            if age > 130:
+            when = _nearest_date(match[0], match[1], dates)
+            if when is None or when.year is None or when.month is None:
                 continue
-            when = _find_date(match.group(2))
-            if when is None or when.year is None:
-                continue
-            years = tuple(sorted((when.year - age - 1, when.year - age)))
+            years = tuple(sorted((when.year - match[2] - 1, when.year - match[2])))
             if years[0] < 1000:
                 continue
-            # Reference month is not a birth month. SPEC: two possible years.
+            # The reference month is not a birth month. SPEC: two possible years.
             claims.append(BirthClaim(years=years, month=None, day=None, source=source))
-            occupied.append((match.start(), match.end()))
+            occupied.append((match[0], match[1]))
     for match in _BIRTH_RE.finditer(text):
         if overlaps(match.start(), match.end()):
             continue
@@ -400,6 +411,48 @@ def _births_from_text(text, source):
     return _dedupe_claims(claims)
 
 
+def _age_matches(sentence):
+    found = []
+    seen = []
+    for pattern in _AGE_RES:
+        for match in pattern.finditer(sentence):
+            age = int(match.group(1))
+            if not 10 <= age <= 130:
+                continue
+            if (match.start(), match.end()) in seen:
+                continue
+            seen.append((match.start(), match.end()))
+            found.append((match.start(), match.end(), age))
+    return found
+
+
+def _sentence_dates(sentence):
+    found = []
+    for match in _SENT_DATE.finditer(sentence):
+        parsed = _parse_date(match.group(1))
+        if parsed is None or parsed.year is None or parsed.month is None:
+            continue
+        found.append((match.start(), match.end(), parsed))
+    return found
+
+
+def _nearest_date(start, end, dates):
+    best = None
+    best_key = None
+    for item in dates:
+        if item[1] <= start:
+            distance = start - item[1]
+        elif end <= item[0]:
+            distance = item[0] - end
+        else:
+            distance = 0
+        key = (distance, item[0])
+        if best_key is None or key < best_key:
+            best = item[2]
+            best_key = key
+    return best
+
+
 def _births_from_search(row, data, countries, listing):
     """Only when dobs and the first paragraph gave nothing.
 
@@ -409,11 +462,8 @@ def _births_from_search(row, data, countries, listing):
     """
     if not countries:
         return []
-    key = _name_query(str(row.get("name") or ""))
-    if not key:
-        return []
     index = _search_index(data)
-    rows = [item for item in list(index.get(key) or []) if isinstance(item, dict)]
+    rows = _search_rows(index, str(row.get("name") or ""))
     rows.sort(key=lambda item: str(item.get("result_id") or ""))
     country_names = [fact.value for fact in countries if isinstance(fact.value, str)]
     claims = []
@@ -430,8 +480,30 @@ def _births_from_search(row, data, countries, listing):
 
 
 def _name_query(name):
-    """Lowercase words, sorted, space-joined. The search_by_query key."""
+    """Lowercase words, sorted, space-joined."""
     return " ".join(sorted(_WORD.findall(name.lower())))
+
+
+def _folded_query(name):
+    """NFKD, drop combining marks, then the same lowercase sorted words.
+
+    load.py keys search_by_query by query.strip().lower(). The file's query
+    is already accent-folded, so 'Raković' looks up as 'rakovic'.
+    """
+    return _name_query(_fold(name))
+
+
+def _search_rows(index, name):
+    if not name or not index:
+        return []
+    folded = _folded_query(name)
+    raw = _name_query(name)
+    rows = list(index.get(folded) or [])
+    if not rows and raw != folded:
+        rows = list(index.get(raw) or [])
+    rows = [item for item in rows if isinstance(item, dict)]
+    rows.sort(key=lambda item: str(item.get("result_id") or ""))
+    return rows
 
 
 def _search_index(data):

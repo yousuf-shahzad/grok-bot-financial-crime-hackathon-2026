@@ -220,6 +220,73 @@ class HitFactsTest(unittest.TestCase):
         self.assertEqual(profile.countries[0].value, "United Kingdom")
         self.assertEqual(profile.countries[0].source, "H-TEST-1")
 
+    def test_search_key_is_accent_folded_then_raw(self):
+        snippet = "Born 4 May 1962. A sanctioned individual in Portugal."
+        data = types.SimpleNamespace(search_by_query={
+            "jerome rakovic": [{"result_id": "SR-FOLD-1", "title": "", "snippet": snippet}],
+            "jérôme raković": [{"result_id": "SR-RAW-1", "title": "", "snippet": snippet}],
+        })
+        profile = extract(_hit(
+            name="Jérôme Raković",
+            primary_category="Sanctions",
+            countries="Portugal",
+        ), data)
+        self.assertEqual([c.source for c in profile.births], ["SR-FOLD-1"])
+        self.assertEqual(profile.births[0].years, (1962,))
+
+    def test_place_fields_use_the_last_country(self):
+        profile = extract(_hit(
+            nationality="Lagos, Lagos, Nigeria",
+            citizenship="Lyon, Auvergne-Rhone-Alpes, France",
+            place_of_birth="Madrid, Community of Madrid, Spain",
+        ), data=None)
+        self.assertEqual(
+            [(f.kind, f.value) for f in profile.countries],
+            [
+                ("nationality", "Nigeria"),
+                ("citizenship", "France"),
+                ("place_of_birth", "Spain"),
+            ])
+
+    def test_age_shapes_in_one_sentence(self):
+        samples = [
+            ("In March 2019 he was 46.", (1972, 1973)),
+            ("In March 2019, when he reached the age of 38.", (1980, 1981)),
+            ("March 2019 saw Ada Example, a 30-year-old, take office.", (1988, 1989)),
+            ("Ada Example, 33 year old, was fined in March 2019.", (1985, 1986)),
+            ("Ada Example, 33, was named in March 2019.", (1985, 1986)),
+            ("She was aged 45 in March 2019.", (1973, 1974)),
+        ]
+        for text, years in samples:
+            profile = extract(_hit(profile_notes=text), data=None)
+            self.assertEqual(profile.births[0].years, years, text)
+            self.assertIsNone(profile.births[0].month, text)
+            self.assertEqual(profile.births[0].source, "H-TEST-1")
+
+    def test_was_born_on_full_date(self):
+        profile = extract(_hit(profile_notes="She was born on 2 January 1990."), data=None)
+        self.assertEqual(profile.births[0].years, (1990,))
+        self.assertEqual(profile.births[0].month, 1)
+        self.assertEqual(profile.births[0].day, 2)
+
+    def test_a_fine_is_not_an_age(self):
+        profile = extract(_hit(
+            profile_notes="The fine was 50 in March 2019. See page 12.",
+        ), data=None)
+        self.assertEqual(profile.births, [])
+
+    def test_age_in_a_search_snippet(self):
+        data = types.SimpleNamespace(search_by_query={
+            "ada example": [{
+                "result_id": "SR-AGE-1",
+                "title": "a sanctioned individual",
+                "snippet": "In March 2019, when he reached the age of 38 in Portugal.",
+            }],
+        })
+        profile = extract(_hit(primary_category="Sanctions", countries="Portugal"), data)
+        self.assertEqual(profile.births[0].source, "SR-AGE-1")
+        self.assertEqual(profile.births[0].years, (1980, 1981))
+
 
 if __name__ == "__main__":
     unittest.main()
