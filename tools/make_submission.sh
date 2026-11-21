@@ -58,7 +58,7 @@ done
 chmod +x "$DEST/system/run"
 
 cat > "$DEST/README.md" <<'EOF'
-# Same Person or Not? (Track 2 submission)
+# Tryll (Track 2 submission)
 
 Decides, for every watchlist hit, whether it is the bank's customer (`DIFFERENT_ENTITY`, `SAME_ENTITY`
 or `REVIEW`), by implementing the bank's identity SOP as rules over the bank's own records, with the
@@ -66,7 +66,9 @@ record IDs behind every decision.
 
 **Run:** `system/run <data folder> <output file>`. Python 3.8+ standard library only. With no API key
 it runs on rules alone and makes no network calls; with `OPENROUTER_API_KEY` (or `XAI_API_KEY`) an
-optional cross-examiner can send a clearance back to `REVIEW`, never the other way.
+optional cross-examiner can send a clearance back to `REVIEW`, and an optional dual decision path
+(`DUAL_MODE` = enforce / advisory / rules, default advisory) adds an independent Grok decision per hit.
+Neither can ever create a clearance: a final `DIFFERENT_ENTITY` only comes from the rules.
 
 | Path | What |
 |---|---|
