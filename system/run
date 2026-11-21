@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Usage: system/run <data folder> <output file>
+# Finds a working Python 3.8+ (python3, python, or the Windows py launcher) and runs main.py.
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[ $# -eq 2 ] || { echo "usage: system/run <data folder> <output file>" >&2; exit 2; }
+OK='import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)'
+for cand in python3 python "py -3"; do
+  # shellcheck disable=SC2086
+  if $cand -c "$OK" >/dev/null 2>&1; then
+    # shellcheck disable=SC2086
+    PYTHONIOENCODING=utf-8 PYTHONHASHSEED=0 exec $cand -X utf8 "$HERE/main.py" "$1" "$2"
+  fi
+done
+echo "system/run: no Python 3.8+ found (tried python3, python, py -3)" >&2
+exit 1
