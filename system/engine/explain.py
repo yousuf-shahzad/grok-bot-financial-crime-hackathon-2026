@@ -71,10 +71,20 @@ def _countries(facts: Iterable[Fact], limit: int = 4) -> str:
     return text + (" and %d more" % more if more > 0 else "")
 
 
-def _cite(people: List[Person], facts: Iterable) -> List[str]:
+def _check_facts(p: Person) -> List[Fact]:
+    """The person's latest approved identity check (KYC row or onboarding note): always cited."""
+    out = [f for f in (p.verified_name, p.verified_dob) if f is not None]
+    out += [f for f in p.countries if f.kind == "doc_country"]
+    return [f for f in out if f.source and not str(f.source).startswith("CUS-")]
+
+
+def _cite(people: List[Person], facts: Iterable, records: bool = True) -> List[str]:
     ev = set()
     for p in people:
-        ev.update(p.record_ids)
+        if records:
+            ev.update(p.record_ids)
+        for f in _check_facts(p):
+            ev.add(str(f.source))
     for f in facts:
         s = getattr(f, "source", None)
         if s and not str(s).startswith(NO_CITE):
@@ -109,6 +119,7 @@ def make(hit: HitProfile, decision: str, code: str, customer_record_id: Optional
     ctx = ctx or {}
     used: List = []
     s: List[str] = []
+    records = True  # cite the person's CUS- records (off when a verified fact alone decided it)
     cust = ("the customer record %s" % customer_record_id
             if customer_record_id and customer_record_id != "AMBIGUOUS" else "the customer")
 
@@ -142,6 +153,7 @@ def make(hit: HitProfile, decision: str, code: str, customer_record_id: Optional
         births = ctx.get("births") or []
         used.extend(cdobs)
         used.extend(births)
+        records = any(str(f.source).startswith("CUS-") for f in cdobs)
         s.append("The customer's date of birth is %s%s." % (
             _join([fmt_date(f) + _src(f) for f in cdobs[:2]]), ""))
         s.append("The hit gives a date of birth of %s, and every one of these is contradicted by the "
@@ -151,6 +163,7 @@ def make(hit: HitProfile, decision: str, code: str, customer_record_id: Optional
     elif code == "NAME_MISMATCH_VERIFIED":
         vn = ctx.get("verified")
         used.append(vn)
+        records = str(getattr(vn, "source", "")).startswith("CUS-")
         hn = (ctx.get("hit_names") or [None])[0]
         s.append("The customer's verified legal name is %s%s." % (_q(vn.value), _src(vn)))
         s.append("It agrees with neither the hit's name %s nor any of its aliases." % (
@@ -159,7 +172,7 @@ def make(hit: HitProfile, decision: str, code: str, customer_record_id: Optional
 
     elif code == "LOCATION_MISMATCH":
         cc = ctx.get("ccountries") or []
-        used.extend(cc)
+        used.extend(f for p in people for f in p.countries)  # every country source: CUS, KYC doc, NOTE lived-in
         s.append("The customer is tied to %s%s." % (
             _countries(cc), " (%s)" % ", ".join(sorted({f.source for f in cc if f.source and not f.source.startswith(NO_CITE)}))
             if any(f.source and not f.source.startswith(NO_CITE) for f in cc) else ""))
@@ -194,6 +207,7 @@ def make(hit: HitProfile, decision: str, code: str, customer_record_id: Optional
 
     else:  # REVIEW / INSUFFICIENT_DATA
         why = ctx.get("why")
+        used.extend(f for p in people for f in p.countries if f.kind == "lived_in")
         if why == "no_customer":
             s.append("No customer record could be found that fits the screened details.")
             s.append("Without the customer's own facts the hit can be neither confirmed nor cleared.")
@@ -225,7 +239,7 @@ def make(hit: HitProfile, decision: str, code: str, customer_record_id: Optional
         s.append("The hit is sent to an analyst for review.")
     return Decision(hit_id=hit.hit_id, alert_id=hit.alert_id, decision=decision, reason_code=code,
                     customer_record_id=customer_record_id, reason=" ".join(s),
-                    evidence=_cite(people, [u for u in used if u is not None]))
+                    evidence=_cite(people, [u for u in used if u is not None], records))
 
 
 def ambiguous_same(first: Decision, people: List[Person]) -> str:
