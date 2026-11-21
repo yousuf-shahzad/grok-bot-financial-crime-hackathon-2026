@@ -431,7 +431,32 @@ def case_detail(hid):
     detail["workflow"] = review_api.workflow(detail["decision"]["decision"], detail["history"])["bucket"]
     detail["qa_sample"] = review_api.qa_sampled(hid, detail["decision"]["decision"])
     detail["court_available"] = court_llm is not None and llm is not None and llm.available()
+    detail["people"] = people_view(hid)
     return 200, detail
+
+
+def people_view(hid):
+    """When several customers fit an alert: each person's key facts and the decision the SOP gives them."""
+    d = STATE.decisions.get(hid)
+    res = STATE.resolutions.get(d.alert_id) if d else None
+    if not res or len(res.people) < 2:
+        return []
+    hit = STATE.data.hits[hid]
+    alert = STATE.data.alerts.get(d.alert_id, {})
+    prof = hitfacts.extract(hit, STATE.data)
+    out = []
+    for p in res.people:
+        one = judge.decide_one(prof, p, alert)
+        dob = p.verified_dob or (p.dobs[0] if p.dobs else None)
+        name = p.verified_name or (p.names[0] if p.names else None)
+        out.append({
+            "person_id": p.person_id, "record_ids": p.record_ids,
+            "name": show(name.value) if name else None,
+            "dob": show(dob.value) if dob else None, "dob_source": dob.source if dob else None,
+            "countries": sorted({str(f.value) for f in p.countries}),
+            "decision": one.decision, "reason_code": one.reason_code,
+        })
+    return out
 
 
 def post_review(body):

@@ -36,6 +36,7 @@ export interface CaseDetail {
   comparison: CompRow[]; records: RecordOpt[]; history: HistoryRow[]; workflow: Bucket; qa_sample: boolean;
   court_available: boolean; label?: { decision: SystemDecision; reason_codes: string } | null;
   crossexam: { provider: string; downgraded: boolean; rules_decision: { decision: string; reason_code: string; reason: string } | null };
+  people?: { person_id: string; record_ids: string[]; name: string | null; dob: string | null; dob_source: string | null; countries: string[]; decision: SystemDecision; reason_code: string }[];
 }
 
 export interface CourtPoint { claim: string; evidence_ids: string[] }

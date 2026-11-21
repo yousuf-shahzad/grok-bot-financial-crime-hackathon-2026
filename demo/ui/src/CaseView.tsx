@@ -82,6 +82,35 @@ export default function CaseView({ hitId, onChanged, onBack, backLabel }: { hitI
           <a href={`/api/report/${hitId}.md`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-separator-border px-3 py-1.5 text-body-2-medium text-text-secondary hover:text-text-primary"><RiFileTextLine size={16} />Case report</a>
         </div>
 
+        {/* Several customers fit this alert: show them side by side so look-alike records are told apart */}
+        {(d.people?.length || 0) > 1 && (
+          <section className="rounded-2xl border border-gold-300 bg-gold-50 p-6 dark:bg-transparent">
+            <h3 className="text-headline-semibold text-text-primary">{d.people!.length} customers fit this alert</h3>
+            <p className="mt-1 text-body-2-regular text-text-secondary">
+              They share a name but are different people (records are only merged on the same phone and full date of birth, or the same document number).
+              {new Set(d.people!.map((p) => p.decision)).size > 1 ? " They lead to different answers, so the bank's rules send the hit to a person." : " They all lead to the same answer."}
+            </p>
+            <div className="mt-4 overflow-x-auto rounded-xl border border-separator-border bg-background-primary-default">
+              <table className="w-full text-left text-body-2-regular">
+                <thead className="text-caption-1-semibold text-text-tertiary uppercase">
+                  <tr className="border-b border-separator-border"><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Name</th><th className="px-4 py-3">Date of birth</th><th className="px-4 py-3">Countries</th><th className="px-4 py-3">On its own</th></tr>
+                </thead>
+                <tbody>
+                  {d.people!.map((p) => (
+                    <tr key={p.person_id} className="border-b border-separator-border last:border-0">
+                      <td className="px-4 py-3"><span className="flex flex-wrap gap-1">{p.record_ids.map((r) => <RecordLink key={r} id={r} />)}</span></td>
+                      <td className="px-4 py-3 text-text-primary">{p.name || "unknown"}</td>
+                      <td className="px-4 py-3 font-medium text-text-primary">{p.dob || "unknown"}</td>
+                      <td className="px-4 py-3 text-text-secondary">{p.countries.join(", ") || "unknown"}</td>
+                      <td className="px-4 py-3"><span className="flex flex-col items-start gap-0.5"><StatusChip color={SYS[p.decision].color}>{SYS[p.decision].label}</StatusChip><span className="text-caption-1-regular text-text-tertiary">{plain(p.reason_code)}</span></span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
         {/* Verdict strip: who said what */}
         {hidden ? (
           <div className="rounded-lg border border-dashed border-separator-border px-4 py-3 text-body-2-regular text-text-secondary">
