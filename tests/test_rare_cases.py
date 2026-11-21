@@ -7,7 +7,8 @@ Windows), otherwise system/main.py with this Python.
 
 Rules only, offline: the run's environment drops every LLM key (OPENROUTER_API_KEY,
 XAI_API_KEY and any other *_API_KEY) so the optional cross-examiner hook in main.py
-has no provider and the decisions are the deterministic rules' decisions.
+has no provider, and sets LLM_DISABLE=1 (llm.py's off switch, which wins over any key). The
+keys are set to "" so a local .env cannot fill them in. No network, no key needed.
 
 Run: py -3 -X utf8 -m unittest discover -s tests
 """
@@ -60,7 +61,7 @@ def run_fixture():
         cmd = [sys.executable, "-X", "utf8", MAIN, FIXTURE, out]
     env = {k: v for k, v in os.environ.items() if not k.upper().endswith("_API_KEY")}
     env.update(PYTHONHASHSEED="0", PYTHONIOENCODING="utf-8", OPENROUTER_API_KEY="", XAI_API_KEY="",
-               CROSSEXAM="0", NO_LLM="1")
+               LLM_DISABLE="1")
     proc = subprocess.run(cmd, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           timeout=300)
     lines = []
