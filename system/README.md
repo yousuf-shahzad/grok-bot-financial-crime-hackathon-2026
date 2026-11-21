@@ -115,25 +115,25 @@ Dev set (440 alerts, 819 hits, 72,265 customers, 54,488 KYC checks, 31,895 notes
 
 ## Worked cases
 
-The three lines below are copied from `output/dev.jsonl`. Each is a practice hit whose reference answer we match.
+The dev data is for event participants only, so these three cases come from our **invented** test folder `tests/fixtures/rare/` (made-up people, IDs ending in `RC`), run through the same `system/run`. Each line below is copied from that output.
 
-**1. A clear mismatch: `H-622EDD`, `DIFFERENT_ENTITY / DOB_MISMATCH`**
+**1. A clear mismatch: `H-RC39`, `DIFFERENT_ENTITY / DOB_MISMATCH`**
 
-> The customer's date of birth is 1979-04-17 (NOTE-CA9BBC). The hit gives a date of birth of 1972 or 1973 (SR-A88751), which the customer's contradicts. The dates of birth show they are different people.
+> The customer's date of birth is 1960-01-01 (CUS-RC3901). The hit gives a date of birth of 1988 or 1989, which the customer's contradicts. The dates of birth show they are different people.
 
-How we got there: the customer's verified date of birth comes from an onboarding-team note (`NOTE-CA9BBC`), which outranks the declared one. The hit has no `dobs` and no age in its profile notes, so the date comes from a search result. The result is kept only because it describes the same kind of listing in a country tied to the hit, and its "aged N in <month year>" gives two possible years. The customer's year is more than one year outside both, so every birth date is contradicted. Evidence: `NOTE-CA9BBC`, `SR-A88751`.
+How we got there: the hit has no `dobs` field, so the birth date comes from the first paragraph of its profile notes, where an age is stated at a dated report. An age at a date gives two possible years, here 1988 or 1989. The customer's year is more than one year outside both, so every birth date the hit gives is contradicted, which is the SOP's `DOB_MISMATCH`.
 
-**2. A match: `H-4D76E3`, `SAME_ENTITY / NAME_DOB_LOCATION_MATCH`**
+**2. A match: `H-RC09`, `SAME_ENTITY / NAME_DOB_LOCATION_MATCH`**
 
-> The customer's name "MOHAMMAD NADEEM GHANI" (NOTE-4E8A14) agrees with the hit's name "Mohammad Nadeem Ghani". The customer's date of birth 1968-02-17 (NOTE-4E8A14) agrees with the hit's 1968-02. Both are tied to Pakistan and United Kingdom. Nothing in the records contradicts the match.
+> The customer's name "Yannick Strode" (KYC-RC0902) agrees with the hit's name "Yannick Strode". The customer's date of birth 1985-03-03 (CUS-RC0902) agrees with the hit's 1985-03-03. Both are tied to United Kingdom. Nothing in the records contradicts the match.
 
-How we got there: the alert's account leads to `CUS-970916`; a second record, `CUS-906311`, is merged into the same person by the SOP's merge rules (shared phone and full date of birth, or the same document number on approved checks), so both are cited. That person's latest approved check is a note (`NOTE-4E8A14`), which gives the verified name and date of birth. The hit gives only a year and month, and the two agree in every part both give. This hit was an unsafe clearance (cost 60) in an early build, before notes were read: without the note's date of birth, a declared one contradicted the hit.
+How we got there: the alert leads to `CUS-RC0901`; a second record, `CUS-RC0902`, is the same person under the SOP's merge rules, so all their facts count and both are cited. The verified legal name comes from that person's approved identity check `KYC-RC0902`, which outranks what the customer typed. Name, date of birth and country all agree and nothing contradicts them.
 
-**3. Left for review: `H-7F2A6C`, `REVIEW / INSUFFICIENT_DATA`**
+**3. Left for review: `H-RC07`, `REVIEW / INSUFFICIENT_DATA`**
 
-> No contradiction rules the hit out, but there is not enough agreement to confirm it. A customer note (NOTE-F1D4BE) says they lived in Denmark, which the hit is also tied to, so the hit cannot be cleared on location. The hit gives no date of birth. Known gaps: no date of birth in dobs, notes or search results, no dated report.
+> The customer's name "Lucan Ferreby" (CUS-RC0701) agrees with the hit's "Lucan Ferreby", and their date of birth 1968-11-03 (CUS-RC0701) agrees with the hit's 1968-11-03. However the customer is tied to United Kingdom and the hit only to Brazil. A country difference does not clear a hit whose name and date of birth agree, so an analyst must decide.
 
-How we got there: the customer's own records name other countries, so without the note this would clear on `LOCATION_MISMATCH`. A support note says the customer lived in a country the hit is tied to, which counts as a country tied to the customer, so nothing contradicts. The hit gives no date of birth anywhere, so nothing confirms either. The reason says exactly what is missing, and cites only the note that decided it.
+How we got there: every country tied to the customer differs from every country tied to the hit, which would normally clear on `LOCATION_MISMATCH`. But the SOP's exception applies here because name **and** date of birth both agree, so the engine does not clear and does not confirm: it sends the hit to an analyst and says why.
 
 ## Results
 
