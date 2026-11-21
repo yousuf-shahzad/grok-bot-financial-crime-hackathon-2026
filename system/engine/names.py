@@ -264,44 +264,121 @@ def real_part_count(name: Optional[str], company: bool = False) -> int:
 # Variant tables
 # ---------------------------------------------------------------------------
 
-def _as_groups(obj: object) -> List[List[str]]:
-    """Accept the shapes name_variants.json might use: list of lists, list of
-    comma-joined strings, dict name -> list, or dict group-id -> list."""
-    groups = []  # type: List[List[str]]
-    if isinstance(obj, dict):
-        for k in sorted(obj, key=lambda x: str(x)):
-            v = obj[k]
-            members = _as_list(v)
-            if not members:
-                continue
-            key = str(k)
-            if not key.isdigit() and not key.lower().startswith("group"):
-                members = [key] + members
-            groups.append(members)
-    elif isinstance(obj, (list, tuple)):
-        for g in obj:
-            members = _as_list(g)
-            if members:
-                groups.append(members)
-    return groups
+_CATEGORY_WORDS = frozenset([
+    "variant", "variants", "group", "groups", "name", "names", "nickname", "nicknames", "given",
+    "surname", "surnames", "first", "last", "alias", "aliases", "forename", "forenames", "family",
+    "equivalents", "spellings", "transliterations", "individual", "individuals", "person", "people",
+])
+_LEGAL_WORDS = ("legal", "suffix", "company_form", "entity_form", "business_form")
 
 
-def _as_list(v: object) -> List[str]:
-    if v is None:
+def _is_legal_key(key: str) -> bool:
+    k = key.lower()
+    return any(w in k for w in _LEGAL_WORDS) or k in ("company", "companies", "forms")
+
+
+def _is_label_key(key: str) -> bool:
+    """A key that names a category or numbers a group, not a name in the group."""
+    k = key.strip().lower()
+    if not k or not any(ch.isalpha() for ch in k):
+        return True
+    words = [w for w in re.split(r"[^a-z]+", k) if w]
+    return any(w in _CATEGORY_WORDS for w in words) or bool(re.fullmatch(r"(group|g)?[\s_-]*\d+", k))
+
+
+def _split(s: str) -> List[str]:
+    return [p.strip() for p in re.split(r"[,;|/]", s) if p.strip()]
+
+
+def _atoms(v: object, depth: int = 0) -> List[str]:
+    """Every string inside v (strings split on , ; | /), in order."""
+    if depth > 6 or v is None or isinstance(v, bool):
         return []
     if isinstance(v, str):
-        return [p.strip() for p in re.split(r"[,;|]", v) if p.strip()]
+        return _split(v)
     if isinstance(v, dict):
-        for key in ("names", "variants", "members", "group"):
-            if key in v:
-                return _as_list(v[key])
-        return []
-    if isinstance(v, (list, tuple)):
         out = []  # type: List[str]
-        for x in v:
-            out.extend(_as_list(x))
+        for k in sorted(v, key=lambda x: str(x)):
+            out.extend(_atoms(v[k], depth + 1))
         return out
-    return [str(v)]
+    if isinstance(v, (list, tuple)):
+        out = []
+        for x in v:
+            out.extend(_atoms(x, depth + 1))
+        return out
+    return []
+
+
+def _is_flat_group(v: object) -> bool:
+    """A list of plain names (no nested lists, no comma-joined strings) is ONE group."""
+    return (isinstance(v, (list, tuple)) and len(v) > 0
+            and all(isinstance(x, str) and not re.search(r"[,;|]", x) for x in v))
+
+
+def _groups_in(obj: object, key: Optional[str] = None, depth: int = 0) -> List[List[str]]:
+    """Variant groups from any plausible name_variants.json shape:
+    list of lists, list of comma-joined strings, {name: [variants]},
+    {group_id: [names]}, {category: <any of these>}, [{"names": [...]}, ...]."""
+    if depth > 6 or obj is None or isinstance(obj, bool):
+        return []
+    if isinstance(obj, str):
+        members = _split(obj)
+        if key is not None and not _is_label_key(key):
+            members = [key] + members
+        return [members]
+    if isinstance(obj, dict):
+        for k in ("names", "variants", "members", "group", "forms"):
+            if k in obj and _is_flat_group(obj[k]) and len(obj) <= 3:
+                return [list(obj[k])]          # one group written as an object
+        groups = []  # type: List[List[str]]
+        for k in sorted(obj, key=lambda x: str(x)):
+            ks = str(k)
+            if _is_legal_key(ks):
+                continue
+            groups.extend(_groups_in(obj[k], ks, depth + 1))
+        return groups
+    if isinstance(obj, (list, tuple)):
+        if key is not None and _is_flat_group(obj):
+            members = list(obj)
+            if not _is_label_key(key):
+                members = [key] + members
+            return [members]
+        groups = []
+        for g in obj:
+            if isinstance(g, str):
+                groups.append(_split(g))
+            elif isinstance(g, (list, tuple)):
+                groups.append(_atoms(g, depth + 1))
+            elif isinstance(g, dict):
+                groups.extend(_groups_in(g, None, depth + 1))
+        return groups
+    return []
+
+
+def _clean_groups(groups: Iterable[Iterable[str]]) -> List[List[str]]:
+    """Keep groups with at least two distinct real names."""
+    out = []  # type: List[List[str]]
+    for g in groups:
+        keys = []  # type: List[str]
+        for w in g:
+            if not isinstance(w, str) or not any(ch.isalpha() for ch in w):
+                continue
+            k = _key(w)
+            if k and k not in keys:
+                keys.append(k)
+        if len(keys) >= 2:
+            out.append(keys)
+    return out
+
+
+def _legal_in(obj: object) -> List[str]:
+    if not isinstance(obj, dict):
+        return []
+    out = []  # type: List[str]
+    for k in sorted(obj, key=lambda x: str(x)):
+        if _is_legal_key(str(k)):
+            out.extend(_atoms(obj[k]))
+    return [w for w in out if any(ch.isalpha() for ch in w)]
 
 
 def _build(groups: Iterable[Iterable[str]], legal: Iterable[str]) -> None:
@@ -328,29 +405,21 @@ def _build(groups: Iterable[Iterable[str]], legal: Iterable[str]) -> None:
 def use_variants(name_variants: Optional[object]) -> None:
     """Install name_variants.json (as parsed by load.py, Data.name_variants).
 
-    None or an unreadable shape keeps the built-in tables. Variant groups from
-    the file replace the built-in VARIANTS; legal forms from the file replace
-    LEGAL_FORMS when the file lists them.
+    Accepts a list of lists, a list of comma-joined strings, a dict of groups
+    ({name: [variants]} or {id: [names]}), category dicts, and a dict with
+    groups plus legal-form keys ("legal_forms", "company_suffixes", ...).
+    Variant groups found in the file replace the built-in VARIANTS; legal forms
+    found replace LEGAL_FORMS. Anything unrecognised or broken (no group with
+    two real names) falls back to the built-in tables, never raises.
     """
-    if not name_variants:
-        _build(VARIANTS, LEGAL_FORMS)
-        return
-    variants_obj = name_variants   # type: object
-    legal_obj = None               # type: object
-    if isinstance(name_variants, dict):
-        lower = {str(k).lower(): k for k in name_variants}
-        legal_key = next((lower[k] for k in sorted(lower) if "legal" in k or "company" in k
-                          or "suffix" in k), None)
-        var_key = next((lower[k] for k in sorted(lower) if "variant" in k or "group" in k
-                        or k in ("names", "given_names", "nicknames")), None)
-        if legal_key is not None:
-            legal_obj = name_variants[legal_key]
-        if var_key is not None:
-            variants_obj = name_variants[var_key]
-        elif legal_key is not None:
-            variants_obj = {k: v for k, v in name_variants.items() if k != legal_key}
-    groups = _as_groups(variants_obj)
-    legal = _as_list(legal_obj) if legal_obj is not None else []
+    groups = []  # type: List[List[str]]
+    legal = []   # type: List[str]
+    if name_variants:
+        try:
+            groups = _clean_groups(_groups_in(name_variants))
+            legal = _legal_in(name_variants)
+        except Exception:  # unreadable shape: built-ins
+            groups, legal = [], []
     _build(groups if groups else VARIANTS, legal if legal else LEGAL_FORMS)
 
 
