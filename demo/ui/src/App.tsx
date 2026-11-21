@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  RiHome5Line, RiInboxLine, RiUserFollowLine, RiFlaskLine, RiAlertLine, RiCheckboxCircleLine, RiListCheck2, RiDownloadLine,
+  RiHome5Line, RiInboxLine, RiUserFollowLine, RiFlaskLine, RiAlertLine, RiCheckboxCircleLine, RiListCheck2, RiDownloadLine, RiShieldCheckLine,
 } from "@remixicon/react";
 import { Button } from "@/components/base/buttons/button";
 import { SearchField } from "@/components/base/search-field/search-field";
@@ -16,11 +16,12 @@ import QueueTable from "./QueueTable";
 import Overview from "./Overview";
 import CaseView from "./CaseView";
 
-export type QueueKey = "overview" | "decide" | "approve" | "qa" | "escalated" | "closed" | "all";
+export type QueueKey = "overview" | "decide" | "approve" | "qa" | "cleared" | "escalated" | "closed" | "all";
 const QUEUES: { key: QueueKey; label: string; icon: NavEntry["icon"]; buckets: Bucket[] | null; qa?: boolean; hint: string }[] = [
   { key: "decide", label: "To decide", icon: RiInboxLine, buckets: ["needs_decision", "returned", "proposed_match"], hint: "The engine could not settle these, or thinks the hit is your customer." },
   { key: "approve", label: "To approve", icon: RiUserFollowLine, buckets: ["pending_approval"], hint: "A colleague has decided. A second person signs it off." },
   { key: "qa", label: "QA sample", icon: RiFlaskLine, buckets: ["proposed_clear"], qa: true, hint: "One in ten engine clearances, for a human spot-check." },
+  { key: "cleared", label: "Cleared by Tryll", icon: RiShieldCheckLine, buckets: ["proposed_clear"], hint: "Every hit Tryll cleared because the bank's rules found a named contradiction. Open one to check the evidence, confirm the clearance, or overturn it." },
   { key: "escalated", label: "Escalated", icon: RiAlertLine, buckets: ["escalated"], hint: "Waiting for more information." },
   { key: "closed", label: "Closed", icon: RiCheckboxCircleLine, buckets: ["done"], hint: "Decided and approved by two people." },
   { key: "all", label: "All hits", icon: RiListCheck2, buckets: null, hint: "Every hit, including the engine's clearances." },
