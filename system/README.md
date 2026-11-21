@@ -82,13 +82,44 @@ None. The SOP is precise enough to implement as rules, and rules are reproducibl
 
 ## Time and cost
 
-<!-- D: fill in final numbers -->
-Dev set (440 alerts, 819 hits, 72k customers): about 40 s on a laptop, most of it loading. Cost: zero (no API calls).
+Dev set (440 alerts, 819 hits, 72,265 customers, 54,488 KYC checks, 31,895 notes): **25 to 40 s** on a laptop, most of it loading the files. Cost: **zero**, there are no API calls. The limit is 30 minutes.
 
 ## Worked cases
 
-<!-- D: fill in from the final output: one clear mismatch, one match, one REVIEW, citing IDs only -->
+The three lines below are copied from `output/dev.jsonl`. Each is a practice hit whose reference answer we match.
 
-## Results on the 50 practice hits
+**1. A clear mismatch: `H-622EDD`, `DIFFERENT_ENTITY / DOB_MISMATCH`**
 
-<!-- D: fill in from tools/score.py at feature freeze -->
+> The customer's date of birth is 1979-04-17 (NOTE-CA9BBC). The hit gives a date of birth of 1972 or 1973 (SR-A88751), which the customer's contradicts. The dates of birth show they are different people.
+
+How we got there: the customer's verified date of birth comes from an onboarding-team note (`NOTE-CA9BBC`), which outranks the declared one. The hit has no `dobs` and no age in its profile notes, so the date comes from a search result. The result is kept only because it describes the same kind of listing in a country tied to the hit, and its "aged N in <month year>" gives two possible years. The customer's year is more than one year outside both, so every birth date is contradicted. Evidence: `NOTE-CA9BBC`, `SR-A88751`.
+
+**2. A match: `H-4D76E3`, `SAME_ENTITY / NAME_DOB_LOCATION_MATCH`**
+
+> The customer's name "MOHAMMAD NADEEM GHANI" (NOTE-4E8A14) agrees with the hit's name "Mohammad Nadeem Ghani". The customer's date of birth 1968-02-17 (NOTE-4E8A14) agrees with the hit's 1968-02. Both are tied to Pakistan and United Kingdom. Nothing in the records contradicts the match.
+
+How we got there: the alert's account leads to `CUS-970916`; a second record, `CUS-906311`, is merged into the same person by the SOP's merge rules (shared phone and full date of birth, or the same document number on approved checks), so both are cited. That person's latest approved check is a note (`NOTE-4E8A14`), which gives the verified name and date of birth. The hit gives only a year and month, and the two agree in every part both give. This hit was an unsafe clearance (cost 60) in an early build, before notes were read: without the note's date of birth, a declared one contradicted the hit.
+
+**3. Left for review: `H-7F2A6C`, `REVIEW / INSUFFICIENT_DATA`**
+
+> No contradiction rules the hit out, but there is not enough agreement to confirm it. A customer note (NOTE-F1D4BE) says they lived in Denmark, which the hit is also tied to, so the hit cannot be cleared on location. The hit gives no date of birth. Known gaps: no date of birth in dobs, notes or search results, no dated report.
+
+How we got there: the customer's own records name other countries, so without the note this would clear on `LOCATION_MISMATCH`. A support note says the customer lived in a country the hit is tied to, which counts as a country tied to the customer, so nothing contradicts. The hit gives no date of birth anywhere, so nothing confirms either. The reason says exactly what is missing, and cites only the note that decided it.
+
+## Results
+
+`tools/score.py` against the 50 practice labels (our own scorer with the brief's cost matrix; the official `validate.py` was not available to us):
+
+| | |
+|---|---|
+| Decisions right | **50 / 50**, cost 0 vs 108 for all-`REVIEW` (decision score 100%) |
+| Unsafe clearances | **0** |
+| Reason code accepted, `customer_record_id` right | 50 / 50, 50 / 50 |
+| Evidence precision / recall | 99% / 96% |
+
+Dev set decision mix (819 hits): 446 `DIFFERENT_ENTITY`, 123 `SAME_ENTITY`, 250 `REVIEW`. Every run is byte-identical.
+
+Checks beyond the 50 labels, because the unseen set has new customers, reworded text and rare SOP cases:
+- **Clearance audit** over all dev clears: no hit is cleared where name **and** date of birth agree, except `NAME_MISMATCH_VERIFIED`, where the SOP says the verified legal name wins. Clears that rest on a verified name the customer did not type were checked by hand against the KYC rows and notes.
+- **Search results** that decide a date of birth were re-checked independently for the listing phrase and a country tied to the hit. This caught and fixed a bug where lowercase words were read as country codes ("in" as India), which had let a namesake's age clear a hit.
+- 50/50 on 50 practice hits is likely somewhat overfitted: we tuned on SOP principles, not on dev wording, and kept every ambiguous parse as "unknown".
