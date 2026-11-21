@@ -276,12 +276,15 @@ class ContractGaps(unittest.TestCase):
         self.assertNotIn("H-T1", final.evidence)
         self.assertNotIn("KYC-MADE-UP", final.evidence)
 
-    def test_bad_llm_code_is_replaced(self):
+    def test_bad_llm_code_is_no_second_view(self):
+        # same rule as llm_judge.judge(): a reason code that does not belong to the decision (or is
+        # missing) makes the LLM answer invalid, so the rules' line stands and no screener is called
         self._stub({"error_in": "deterministic", "significant_missed_facts": [], "explanation": "Take the review."})
-        final, _ = arbiter.resolve(det(), view(SAME, "DOB_MISMATCH"), self.case("CUS-T1"))
-        self.assertEqual(final.decision, SAME)
-        self.assertIn(final.reason_code, llm_judge.CODES[SAME])
-        self.assertTrue(2 <= sentences(final.reason) <= 4)
+        d = det()
+        for bad in (view(SAME, "DOB_MISMATCH"), {"decision": SAME, "compared": [], "evidence_ids": []}):
+            final, tr = arbiter.resolve(d, bad, self.case("CUS-T1"))
+            self.assertIs(final, d)
+            self.assertEqual(tr["path"], "llm_unavailable")
 
     def test_screen_failed_flag_reviews(self):
         final, path = arbiter.resolve_one(det(), view(SAME, "NAME_DOB_MATCH"), screen("llm"), screen_failed=True)
