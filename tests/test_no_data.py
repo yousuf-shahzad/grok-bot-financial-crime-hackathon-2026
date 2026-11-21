@@ -41,6 +41,8 @@ def problems(files: list) -> list:
         fixture = low.startswith("tests/fixtures/")
         if low.endswith((".xlsx", ".xls", ".csv")):
             bad.append((f, "spreadsheet/csv"))
+        elif low.endswith((".db", ".sqlite", ".sqlite3")):
+            bad.append((f, "database (review audit holds record IDs and notes)"))
         elif re.match(r"^\.env($|\.)", base) and base != ".env.example":
             bad.append((f, "env file"))
         elif low.split("/")[0] in ("data", "dev") or "/data/dev/" in low:
@@ -63,8 +65,8 @@ class NoDataInRepo(unittest.TestCase):
         caught = {f for f, _ in problems([
             "data/ScreeningDevSet-browse.xlsx", "data/dev/customers.jsonl", "dev/hits.jsonl",
             ".env", "system/.env.local", "notes.jsonl", "tools/practice_labels.jsonl",
-            "x/policy_sheet.txt", "demo/customers.json"])}
-        self.assertEqual(len(caught), 9, caught)
+            "x/policy_sheet.txt", "demo/customers.json", "demo/.reviews/reviews.sqlite3"])}
+        self.assertEqual(len(caught), 10, caught)
         self.assertEqual(problems(["tests/fixtures/rare/customers.jsonl", "output/dev.jsonl",
                                    ".env.example", "system/engine/model.py"]), [])
 
