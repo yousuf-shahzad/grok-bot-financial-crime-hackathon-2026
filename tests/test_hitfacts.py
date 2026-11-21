@@ -305,6 +305,54 @@ class HitFactsTest(unittest.TestCase):
         profile = extract(_hit(primary_category="Sanctions", nationality="United Kingdom"), data)
         self.assertEqual(profile.births[0].source, "SR-UK-1")
 
+    def test_reworded_age_and_birth(self):
+        profile = extract(_hit(
+            profile_notes="He was aged 45 at the time of the March 2019 report.",
+        ), data=None)
+        self.assertEqual(profile.births[0].years, (1973, 1974))
+        profile = extract(_hit(
+            profile_notes="The file cites the March 2019 report. He was then 45.",
+        ), data=None)
+        self.assertEqual(profile.births[0].years, (1973, 1974))
+        profile = extract(_hit(
+            profile_notes="The file cites the March 2019 report. He was then a 45-year-old.",
+        ), data=None)
+        self.assertEqual(profile.births[0].years, (1973, 1974))
+        profile = extract(_hit(
+            profile_notes="March 2018 and March 2019 are both mentioned. He was then 45.",
+        ), data=None)
+        self.assertEqual(profile.births, [])
+        profile = extract(_hit(profile_notes="Recorded as b. 1970 in the margin."), data=None)
+        self.assertEqual(profile.births[0].years, (1970,))
+        self.assertIsNone(profile.births[0].month)
+
+    def test_death_wording_and_life_status(self):
+        died = extract(_hit(profile_notes="The subject died in 2015.", life_status="unknown"), data=None)
+        self.assertEqual(died.deceased.value, PartialDate(2015, None, None))
+        self.assertEqual(died.deceased.source, "H-TEST-1")
+        away = extract(_hit(profile_notes="She passed away on 12 Mar 2015."), data=None)
+        self.assertEqual(away.deceased.value, PartialDate(2015, 3, 12))
+        since = extract(_hit(profile_notes="He has been deceased since March 2015."), data=None)
+        self.assertEqual(since.deceased.value, PartialDate(2015, 3, None))
+        nodate = extract(_hit(profile_notes="Described only as the late patron.", life_status="Unknown"), data=None)
+        self.assertIsNone(nodate.deceased)
+        self.assertIn("deceased but no date of death", nodate.missing)
+        alive = extract(_hit(
+            profile_notes="His father died in 2015.", life_status="Alive", deceased_date="2015-01-01",
+        ), data=None)
+        self.assertIsNone(alive.deceased)
+        status = extract(_hit(life_status="DECEASED", deceased_date="2015-06-01"), data=None)
+        self.assertEqual(status.deceased.value, PartialDate(2015, 6, 1))
+        dead = extract(_hit(life_status="Dead"), data=None)
+        self.assertIsNone(dead.deceased)
+        clash = extract(_hit(profile_notes="He died in 2014. She passed away in 2016."), data=None)
+        self.assertIsNone(clash.deceased)
+        firm = extract(_hit(
+            entity_type="Company", name="Example Holdings",
+            profile_notes="The founder died in 2015.",
+        ), data=None)
+        self.assertIsNone(firm.deceased)
+
     def test_age_in_a_search_snippet(self):
         data = types.SimpleNamespace(search_by_query={
             "ada example": [{

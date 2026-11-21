@@ -143,6 +143,15 @@ class ResidenceSlotsTest(unittest.TestCase):
         self.assertEqual(facts.source, "NOTE-TEST-2")
         self.assertEqual(facts.date, "2021-04-04")
 
+    def test_country_named_before_the_verb(self):
+        facts = parse({
+            "channel": "phone",
+            "note_id": "NOTE-TEST-10",
+            "text": "Nigeria was where she lived before the move.",
+        })
+        self.assertEqual(facts.lived_in, ["Nigeria"])
+        self.assertFalse(facts.verified)
+
     def test_country_may_come_first(self):
         facts = parse({
             "note_id": "NOTE-TEST-3",
@@ -207,6 +216,39 @@ class ResidenceSlotsTest(unittest.TestCase):
         self.assertIsInstance(facts, NoteFacts)
         self.assertFalse(facts.verified)
         self.assertEqual(facts.lived_in, [])
+
+    def test_reworded_passive_and_country_first(self):
+        facts = parse(kyc(
+            "Identity was verified by Registrar for JOHN SMITH, born 12 Mar 1970, "
+            "after a Spain-issued passport was read."))
+        self.assertTrue(facts.verified)
+        self.assertEqual(facts.name, "JOHN SMITH")
+        self.assertEqual(facts.dob, PartialDate(1970, 3, 12))
+        self.assertEqual(facts.doc_country, "Spain")
+
+    def test_passport_was_checked_and_abbreviated_birth(self):
+        facts = parse(kyc(
+            "A passport issued in Spain was checked for JOHN SMITH, b. 1970, on 2020-06."))
+        self.assertTrue(facts.verified)
+        self.assertEqual(facts.name, "JOHN SMITH")
+        self.assertEqual(facts.dob, PartialDate(1970, None, None))
+        self.assertEqual(facts.doc_country, "Spain")
+        self.assertEqual(facts.date, PartialDate(2020, 6, None))
+
+    def test_month_precision_and_month_day_comma(self):
+        facts = parse(kyc(
+            "Onfido confirmed the driving licence from Portugal for ANA COSTA, "
+            "DOB 1970-03, on Mar 12, 1970."))
+        self.assertEqual(facts.dob, PartialDate(1970, 3, None))
+        self.assertTrue(facts.verified)
+        self.assertEqual(facts.doc_country, "Portugal")
+
+    def test_two_birth_years_are_not_guessed(self):
+        facts = parse(kyc(
+            "Identity was verified for JOHN SMITH, born in 1970 or 1971, "
+            "passport from Spain, on 2020-01-02."))
+        self.assertFalse(facts.verified)
+        self.assertIsNone(facts.dob)
 
     def test_repeat_calls_match(self):
         note = kyc("Verified passport from Spain for ADA EXAMPLE, born 1968-02-17, on 2024-01-01.")
