@@ -176,6 +176,14 @@ class ResidenceSlotsTest(unittest.TestCase):
         })
         self.assertEqual(facts.lived_in, [])
 
+    def test_lowercase_in_and_and_are_not_countries(self):
+        facts = parse({
+            "channel": "email",
+            "note_id": "NOTE-TEST-9",
+            "text": "She lived in Portugal and kept a home there.",
+        })
+        self.assertEqual(facts.lived_in, ["Portugal"])
+
     def test_sentence_start_it_is_not_italy(self):
         facts = parse({
             "channel": "email",
