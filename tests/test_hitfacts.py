@@ -256,6 +256,10 @@ class HitFactsTest(unittest.TestCase):
             ("Ada Example, 33 year old, was fined in March 2019.", (1985, 1986)),
             ("Ada Example, 33, was named in March 2019.", (1985, 1986)),
             ("She was aged 45 in March 2019.", (1973, 1974)),
+            ("2019 notice from March described Ada Example, 45, as a sanctioned individual in Portugal.",
+             (1973, 1974)),
+            ("A March bulletin filed in 2019 described Ada Example, 45, as a sanctioned individual in Portugal.",
+             (1973, 1974)),
         ]
         for text, years in samples:
             profile = extract(_hit(profile_notes=text), data=None)
@@ -268,6 +272,12 @@ class HitFactsTest(unittest.TestCase):
         self.assertEqual(profile.births[0].years, (1990,))
         self.assertEqual(profile.births[0].month, 1)
         self.assertEqual(profile.births[0].day, 2)
+
+    def test_lowercase_may_does_not_anchor_an_age(self):
+        profile = extract(_hit(
+            profile_notes="The 2019 notice may describe Ada Example, 45, as a listed person.",
+        ), data=None)
+        self.assertEqual(profile.births, [])
 
     def test_a_fine_is_not_an_age(self):
         profile = extract(_hit(
