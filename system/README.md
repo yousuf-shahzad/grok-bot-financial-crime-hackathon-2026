@@ -2,7 +2,7 @@
 
 `system/run <data folder> <output file>` reads the bank's files, decides every watchlist hit as `DIFFERENT_ENTITY`, `SAME_ENTITY` or `REVIEW`, and writes one JSON line per hit with a reason code, the resolved customer record, a 2 to 4 sentence reason and the IDs of the records that decided it.
 
-It is plain **Python 3 standard library** (3.8+), **no language model and no network calls**. Every rule is a line of the bank's identity SOP, and every fact carries the ID of the record it came from.
+It is plain **Python 3 standard library** (3.8+). The decisions are made by **rules**, each a line of the bank's identity SOP, and every fact carries the ID of the record it came from. One optional, narrow use of a language model (a *cross-examiner*, below) can only send a clearance back to `REVIEW`; with no API key the system runs on rules alone and makes no network calls.
 
 ## Architecture
 
@@ -38,6 +38,7 @@ It is plain **Python 3 standard library** (3.8+), **no language model and no net
 | `engine/names.py`, `dates.py`, `countries.py` | Name agreement, partial-date logic, country normalisation | 8, 6, 7 |
 | `engine/judge.py` | The decision rules below | 3, 6, 7 |
 | `engine/explain.py` | Reason templates and evidence selection | 9 |
+| `engine/crossexam.py`, `engine/llm.py` | Optional: a model re-reads the free text behind each clearance; can only turn it into `REVIEW` | 6 (safety) |
 
 ## Finding the customer and the listed person
 
@@ -72,17 +73,28 @@ Every fact is a `Fact(value, source)` where `source` is the exact record ID it c
 
 ## Determinism
 
-- No model calls and no randomness. Alerts and hits are processed sorted by ID; every set or dict that can reach the output is iterated `sorted(...)`; people are sorted by `person_id` (the smallest record ID in the group); evidence is sorted and de-duplicated.
+- The rules make no model calls and use no randomness. Alerts and hits are processed sorted by ID; every set or dict that can reach the output is iterated `sorted(...)`; people are sorted by `person_id` (the smallest record ID in the group); evidence is sorted and de-duplicated.
 - "Today" is the alert's `screened_at`, never the clock. `system/run` sets `PYTHONHASHSEED=0`.
-- Check: repeated runs on the dev set (from the repo root and from inside `system/`) give byte-identical output. <!-- D: re-confirm at feature freeze -->
+- The cross-examiner runs at temperature 0 with a strict JSON schema, processes hits in sorted order and merges results by hit ID, so thread timing cannot change the output. It can only move a hit from `DIFFERENT_ENTITY` to `REVIEW`, so even a model that answered differently between runs could never turn a review into a clearance.
+- Check: repeated runs on the dev set (from the repo root and from inside `system/`, rules only and with the cross-examiner) give byte-identical output. <!-- D: re-confirm at feature freeze -->
 
 ## Model and prompts
 
-None. The SOP is precise enough to implement as rules, and rules are reproducible run to run. The free-text readers (`notes.py`, `hitfacts.py`) each sit behind one function, so a model could be plugged in there later without touching anything else.
+**Rules decide; the model can only add caution.** After the judge has decided every hit, each `DIFFERENT_ENTITY` goes to a *cross-examiner*: a language model re-reads the free text behind that clearance (the customer's notes, the hit's profile text and search snippets) as a careful clerk. It **extracts facts only**, as strict JSON: for each customer note whether it records a successful identity check and its verified name, date of birth, document country and lived-in countries; for the hit's text whether it is about this person, birth-year candidates, month, day and the earliest dated report. **Our code, not the model, compares those facts with the SOP rule that cleared the hit.** If the model's reading removes the contradiction (for example a verified date of birth the parser missed), the hit becomes `REVIEW / INSUFFICIENT_DATA`, with a reason saying so.
+
+`main.py` enforces the limit itself: a cross-examiner result is applied only if it turns a `DIFFERENT_ENTITY` into a `REVIEW` for the same hit. It can never create a clearance or a confirmation, and any error, timeout or missing key leaves the rules' decision unchanged.
+
+| | |
+|---|---|
+| Provider | `OPENROUTER_API_KEY` if set (model `x-ai/grok-4.20`), else `XAI_API_KEY` (model `grok-4.20-0309-non-reasoning`), else rules only. `LLM_DISABLE=1` forces rules only |
+| Settings | temperature 0, strict JSON schema, 45 s timeout per call, 2 retries, calls cached by a hash of their input within a run |
+| Prompt | "Careful clerk: extract only explicitly stated facts, never guess", with the field list above |
+| Calls on the dev set | about 113 (one per clearance, run in parallel) |
+| Effect on dev | 0 decisions changed: the rules already read the dev text. With the note parser switched off as a test, rules alone made 5 unsafe clearances; with the cross-examiner, 0 |
 
 ## Time and cost
 
-Dev set (440 alerts, 819 hits, 72,265 customers, 54,488 KYC checks, 31,895 notes): **25 to 40 s** on a laptop, most of it loading the files. Cost: **zero**, there are no API calls. The limit is 30 minutes.
+Dev set (440 alerts, 819 hits, 72,265 customers, 54,488 KYC checks, 31,895 notes): **25 to 40 s** on a laptop with rules only, most of it loading the files; about the same with the cross-examiner, whose ~113 short calls run in parallel. Cost: zero on rules alone, a few cents per run with the model. The limit is 30 minutes.
 
 ## Worked cases
 
@@ -117,7 +129,7 @@ How we got there: the customer's own records name other countries, so without th
 | Reason code accepted, `customer_record_id` right | 50 / 50, 50 / 50 |
 | Evidence precision / recall | 99% / 96% |
 
-Dev set decision mix (819 hits): 446 `DIFFERENT_ENTITY`, 123 `SAME_ENTITY`, 250 `REVIEW`. Every run is byte-identical.
+Dev set decision mix (819 hits): 447 `DIFFERENT_ENTITY`, 123 `SAME_ENTITY`, 249 `REVIEW`. Every run is byte-identical.
 
 Checks beyond the 50 labels, because the unseen set has new customers, reworded text and rare SOP cases:
 - **Clearance audit** over all dev clears: no hit is cleared where name **and** date of birth agree, except `NAME_MISMATCH_VERIFIED`, where the SOP says the verified legal name wins. Clears that rest on a verified name the customer did not type were checked by hand against the KYC rows and notes.

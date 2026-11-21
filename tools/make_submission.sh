@@ -20,7 +20,7 @@ DATA="${2:-}"
 [ -s "$ROOT/system/README.md" ] || die "no system/README.md"
 
 # refuse to build from a dirty system/ or output/: the submission must be what is committed
-if [ -n "$(git -C "$ROOT" status --porcelain -- system output)" ]; then
+if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no -- system output)" ]; then
   die "system/ or output/ has uncommitted changes; commit them (or stash) first"
 fi
 
@@ -77,7 +77,7 @@ bad="$(cd "$DEST" && find . -path ./.git -prune -o -type f -print | grep -Ev '^\
 if (cd "$DEST" && find . -path ./.git -prune -o \( -name '*.xlsx' -o -name '.env*' -o -name 'customers.jsonl' -o -name 'kyc_checks.jsonl' -o -name 'notes.jsonl' \) -print | grep -q .); then
   die "data or env file found in submission"
 fi
-if grep -rIlE 'sk-or-v1-[A-Za-z0-9]{20,}|OPENROUTER_API_KEY *= *[^ $]' "$DEST/system" "$DEST/README.md" >/dev/null 2>&1; then
+if grep -rIlE 'sk-or-v1-[A-Za-z0-9]{20,}|xai-[A-Za-z0-9]{20,}|(OPENROUTER|XAI)_API_KEY *= *[^ $]' "$DEST/system" "$DEST/README.md" >/dev/null 2>&1; then
   die "something that looks like an API key is in the submission"
 fi
 if grep -rlE '^(from|import) +(tools|demo|docs)\b' "$DEST/system" >/dev/null 2>&1; then

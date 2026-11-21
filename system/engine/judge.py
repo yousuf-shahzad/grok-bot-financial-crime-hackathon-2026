@@ -11,7 +11,7 @@ Matchers come from names.py and dates.py (module C); while they are missing only
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .model import BirthClaim, Decision, Fact, HitProfile, PartialDate, Person, Resolution
 from . import explain
@@ -70,6 +70,24 @@ def _norm_country(v) -> str:
     return str(v or "").strip().lower()
 
 
+def name_match(hit: HitProfile, person: Person) -> Tuple[Optional[Fact], Optional[Fact]]:
+    """SOP principle 8 as the judge applies it: (customer name fact, hit name fact) that agree, or
+    (None, None). Uses the verified name when there is one. An individual whose name has fewer than
+    two real parts agrees only with a single-part hit alias. Public so demo/ shows the same answer."""
+    if names is None:
+        return None, None
+    company = _is_company(hit.entity_type)
+    hnames = [f for f in hit.names if str(f.value or "").strip()]
+    for cf in _cust_names(person):
+        cparts = names.real_part_count(str(cf.value), company)
+        for hf in hnames:
+            if not company and cparts < 2 and names.real_part_count(str(hf.value), company) != 1:
+                continue  # too few real parts: only a single-part hit alias can agree
+            if names.names_agree(str(cf.value), str(hf.value), company):
+                return cf, hf
+    return None, None
+
+
 def _has_facts(p: Person) -> bool:
     return bool(p.names or p.dobs or p.countries or p.verified_name or p.verified_dob)
 
@@ -119,17 +137,7 @@ def decide_one(hit: HitProfile, person: Person, alert: dict) -> Decision:
     # 5. agreement facts
     hnames = [f for f in hit.names if str(f.value or "").strip()]
     cnames = _cust_names(person)
-    name_fact = hit_name_fact = None
-    for cf in cnames:
-        cparts = names.real_part_count(str(cf.value), company)
-        for hf in hnames:
-            if not company and cparts < 2 and names.real_part_count(str(hf.value), company) != 1:
-                continue  # too few real parts: only a single-part hit alias can agree
-            if names.names_agree(str(cf.value), str(hf.value), company):
-                name_fact, hit_name_fact = cf, hf
-                break
-        if name_fact is not None:
-            break
+    name_fact, hit_name_fact = name_match(hit, person)
     name_ok = name_fact is not None
 
     births = _hit_births(hit)
