@@ -241,6 +241,10 @@ Zambia|ZM|ZMB|zambian
 Zimbabwe|ZW|ZWE|zimbabwean
 """
 
+# Capitalised codes that are also common words in free text ("photo ID"): unknown.
+# Indonesia still maps from "IDN", "Indonesia" and "Indonesian".
+AMBIGUOUS_CODES = {"ID"}
+
 NOT_COUNTRIES = {"international", "europe", "global", "worldwide", "unknown", "none", "na", "n a", "other"}
 
 
@@ -268,6 +272,12 @@ def normalise(s) -> Optional[str]:
     k = _key(s)
     if not k or k in NOT_COUNTRIES:
         return None
+    if len(k) <= 3 and " " not in k:
+        # 2-3 letters is a country code only when written in capitals ("GB", "U.S.A."),
+        # so ordinary words ("in", "and", "is", "to") never become countries.
+        letters = re.sub(r"[^A-Za-z]", "", str(s))
+        if not letters.isupper() or letters in AMBIGUOUS_CODES:
+            return None
     return _LOOKUP.get(k)
 
 
