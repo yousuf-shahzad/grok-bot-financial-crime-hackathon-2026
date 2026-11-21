@@ -99,16 +99,19 @@ def _rows_from(obj: Any) -> Optional[List[dict]]:
     if isinstance(obj, list):
         return [r for r in obj if isinstance(r, dict)]
     if isinstance(obj, dict):
-        lists = [obj[k] for k in sorted(obj, key=str) if isinstance(obj[k], list)]
-        if len(lists) == 1 and all(isinstance(r, dict) for r in lists[0]):
-            return list(lists[0])
-        return [obj]  # a single row
+        # {"rows": [{...}, ...]}: an object whose only value is the list of rows
+        if len(obj) == 1:
+            only = next(iter(obj.values()))
+            if isinstance(only, list) and only and all(isinstance(r, dict) for r in only):
+                return list(only)
+        return [obj]  # a single row (one-line JSONL or a pretty-printed object)
     return None
 
 
 def _parse_rows(text: str) -> List[dict]:
     body = text.strip()
-    if body.startswith("["):
+    if body.startswith("[") or body.startswith("{"):
+        # whole-file JSON first; multi-line JSONL fails here ("extra data") and is read per line
         try:
             rows = _rows_from(json.loads(body))
             if rows is not None:
