@@ -121,9 +121,9 @@ def decide_one(hit: HitProfile, person: Person, alert: dict) -> Decision:
     cnames = _cust_names(person)
     name_fact = hit_name_fact = None
     for cf in cnames:
-        cparts = names.real_part_count(str(cf.value))
+        cparts = names.real_part_count(str(cf.value), company)
         for hf in hnames:
-            if not company and cparts < 2 and names.real_part_count(str(hf.value)) != 1:
+            if not company and cparts < 2 and names.real_part_count(str(hf.value), company) != 1:
                 continue  # too few real parts: only a single-part hit alias can agree
             if names.names_agree(str(cf.value), str(hf.value), company):
                 name_fact, hit_name_fact = cf, hf
@@ -168,7 +168,7 @@ def decide_one(hit: HitProfile, person: Person, alert: dict) -> Decision:
 
     # 7. the verified legal name agrees with none of the hit's names
     vn = person.verified_name
-    if vn is not None and hnames and names.real_part_count(str(vn.value)) >= 2:
+    if vn is not None and hnames and names.real_part_count(str(vn.value), company) >= 2:
         if not any(names.names_agree(str(vn.value), str(hf.value), company) for hf in hnames):
             return explain.make(hit, DIFF, "NAME_MISMATCH_VERIFIED", cid, [person], dict(base, verified=vn))
 

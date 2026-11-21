@@ -20,7 +20,7 @@ from engine.model import BirthClaim, Fact, HitProfile, PartialDate, Person, Reso
 # ---- stand-in matchers -------------------------------------------------------------------------
 fake_names = types.SimpleNamespace()
 fake_names.parts = lambda n, company=False: sorted({p for p in re.findall(r"[a-z]+", n.lower()) if len(p) > 1})
-fake_names.real_part_count = lambda n: len(fake_names.parts(n))
+fake_names.real_part_count = lambda n, company=False: len(fake_names.parts(n))
 
 
 def _agree(a, b, company=False):
