@@ -459,6 +459,52 @@ def _age_matches(sentence):
     return found
 
 
+_MONTH_WORD = re.compile(r"\b(" + "|".join(sorted(_MONTHS, key=len, reverse=True)) + r")\b", re.I)
+_BARE_YEAR = re.compile(r"(?<!\d)(\d{4})(?!\d)")
+
+
+def _separated_month_year(sentence, occupied):
+    """A year and a month name in either order, not already inside one date.
+
+    '2019 notice from March' and 'March bulletin in 2019' are the same anchor
+    as 'March 2019': year plus month, no day.
+    """
+    def taken(start, end):
+        return any(not (end <= left or start >= right) for left, right in occupied)
+
+    months = []
+    for match in _MONTH_WORD.finditer(sentence):
+        word = match.group(1)
+        if not word[:1].isupper() or taken(match.start(), match.end()):
+            continue
+        months.append((match.start(), match.end(), _MONTHS[word.lower()]))
+    years = []
+    for match in _BARE_YEAR.finditer(sentence):
+        if taken(match.start(), match.end()):
+            continue
+        year = int(match.group(1))
+        if 1000 <= year <= 2100:
+            years.append((match.start(), match.end(), year))
+    used = set()
+    found = []
+    for start, end, month in months:
+        best = None
+        best_gap = None
+        for index, (year_start, year_end, year) in enumerate(years):
+            if index in used:
+                continue
+            gap = year_start - end if year_start >= end else start - year_end
+            if best_gap is None or gap < best_gap:
+                best = index
+                best_gap = gap
+        if best is None:
+            continue
+        used.add(best)
+        year_start, year_end, year = years[best]
+        found.append((min(start, year_start), max(end, year_end), PartialDate(year, month, None)))
+    return found
+
+
 def _sentence_dates(sentence):
     found = []
     for match in _SENT_DATE.finditer(sentence):
@@ -466,6 +512,8 @@ def _sentence_dates(sentence):
         if parsed is None or parsed.year is None or parsed.month is None:
             continue
         found.append((match.start(), match.end(), parsed))
+    found.extend(_separated_month_year(sentence, [(item[0], item[1]) for item in found]))
+    found.sort(key=lambda item: item[0])
     return found
 
 

@@ -1,8 +1,8 @@
-# Same Person or Not? A deterministic SOP engine
+# Tryll: same person or not?
 
 `system/run <data folder> <output file>` reads the bank's files, decides every watchlist hit as `DIFFERENT_ENTITY`, `SAME_ENTITY` or `REVIEW`, and writes one JSON line per hit with a reason code, the resolved customer record, a 2 to 4 sentence reason and the IDs of the records that decided it.
 
-It is plain **Python 3 standard library** (3.8+). The decisions are made by **rules**, each a line of the bank's identity SOP, and every fact carries the ID of the record it came from. One optional, narrow use of a language model (a *cross-examiner*, below) can only send a clearance back to `REVIEW`; with no API key the system runs on rules alone and makes no network calls.
+It is plain **Python 3 standard library** (3.8+). The decisions are made by **rules**, each a line of the bank's identity SOP, and every fact carries the ID of the record it came from. **Tryll** is the product name. Two optional uses of a language model sit on top of the rules, and **neither can ever create a clearance**: a *cross-examiner* that can only send a clearance back to `REVIEW`, and a *dual decision path* (an independent Grok decision for every hit plus a screening agent when it disagrees with the rules), switched by `DUAL_MODE`. With no API key the system runs on rules alone and makes no network calls.
 
 ## Architecture
 
@@ -39,6 +39,7 @@ It is plain **Python 3 standard library** (3.8+). The decisions are made by **ru
 | `engine/judge.py` | The decision rules below | 3, 6, 7 |
 | `engine/explain.py` | Reason templates and evidence selection | 9 |
 | `engine/crossexam.py`, `engine/llm.py` | Optional: a model re-reads the free text behind each clearance; can only turn it into `REVIEW` | 6 (safety) |
+| `engine/llm_judge.py`, `engine/arbiter.py`, `engine/sop.py` | Optional dual path: an independent Grok decision per hit, a screening agent on disagreement, `DUAL_MODE` | 6, 7 (safety) |
 
 ## Finding the customer and the listed person
 
@@ -76,6 +77,7 @@ Every fact is a `Fact(value, source)` where `source` is the exact record ID it c
 - The rules make no model calls and use no randomness. Alerts and hits are processed sorted by ID; every set or dict that can reach the output is iterated `sorted(...)`; people are sorted by `person_id` (the smallest record ID in the group); evidence is sorted and de-duplicated.
 - "Today" is the alert's `screened_at`, never the clock. `system/run` sets `PYTHONHASHSEED=0`.
 - The cross-examiner runs at temperature 0 with a strict JSON schema, processes hits in sorted order and merges results by hit ID, so thread timing cannot change the output. It can only move a hit from `DIFFERENT_ENTITY` to `REVIEW`, so even a model that answered differently between runs could never turn a review into a clearance.
+- The dual path is order-independent the same way (results merged by hit ID) and, in the default advisory mode, never changes the output.
 - Check: repeated runs on the dev set (from the repo root and from inside `system/`, rules only and with the cross-examiner) give byte-identical output. <!-- D: re-confirm at feature freeze -->
 
 ## Model and prompts
@@ -92,31 +94,46 @@ Every fact is a `Fact(value, source)` where `source` is the exact record ID it c
 | Calls on the dev set | about 113 (one per clearance, run in parallel) |
 | Effect on dev | 0 decisions changed: the rules already read the dev text. With the note parser switched off as a test, rules alone made 5 unsafe clearances; with the cross-examiner, 0 |
 
+### Dual decision path (`DUAL_MODE`)
+
+For every hit an independent Grok judge (`llm_judge.py`) decides from the same structured facts plus the raw texts behind them, and sees the rules engine's own comparison table (name, date of birth, country: agree / contradict / unknown, and whether the location exception applies). If it agrees with the rules, the line is unchanged. If not, a screening agent (`arbiter.py`) says where the error is, and it may side against the rules only by **citing a supplied record that disproves the rules' comparison**; otherwise the rules' line stands.
+
+| Screener verdict | Final |
+|---|---|
+| error in the LLM, or no cited record | the rules' line stands |
+| error in the rules, LLM said `SAME_ENTITY` or `REVIEW` | the LLM's decision |
+| error in the rules, LLM said `DIFFERENT_ENTITY` | `REVIEW`: **a clearance can only come from the rules engine** |
+| neither / both (with a cited record), or screener failure | `REVIEW / INSUFFICIENT_DATA` |
+
+The rule that the LLM can never create a clearance is enforced twice, in `arbiter.py` and again in `main.py`. A failed or invalid LLM answer is "no second view" (the rules' line stands), so an outage cannot push every hit to review.
+
+**Switch:** `DUAL_MODE=enforce` applies the dual path; `DUAL_MODE=advisory` (**current default**) runs it and keeps its trace for the analyst GUI but changes no output line, so the scored output is rules + cross-examiner; `DUAL_MODE=rules` makes no judge or screener calls at all. One-line switch back to rules only: `DUAL_MODE=rules system/run <data> <out>` (or set `DUAL_MODE_DEFAULT` in `system/main.py`). We keep advisory as the default until enforce scores at least as well as rules only on the practice hits with 0 unsafe clearances.
+
 ## Time and cost
 
 Dev set (440 alerts, 819 hits, 72,265 customers, 54,488 KYC checks, 31,895 notes): **25 to 40 s** on a laptop with rules only, most of it loading the files; about the same with the cross-examiner, whose ~113 short calls run in parallel. Cost: zero on rules alone, a few cents per run with the model. The limit is 30 minutes.
 
 ## Worked cases
 
-The three lines below are copied from `output/dev.jsonl`. Each is a practice hit whose reference answer we match.
+The dev data is for event participants only, so these three cases come from our **invented** test folder `tests/fixtures/rare/` (made-up people, IDs ending in `RC`), run through the same `system/run`. Each line below is copied from that output.
 
-**1. A clear mismatch: `H-622EDD`, `DIFFERENT_ENTITY / DOB_MISMATCH`**
+**1. A clear mismatch: `H-RC39`, `DIFFERENT_ENTITY / DOB_MISMATCH`**
 
-> The customer's date of birth is 1979-04-17 (NOTE-CA9BBC). The hit gives a date of birth of 1972 or 1973 (SR-A88751), which the customer's contradicts. The dates of birth show they are different people.
+> The customer's date of birth is 1960-01-01 (CUS-RC3901). The hit gives a date of birth of 1988 or 1989, which the customer's contradicts. The dates of birth show they are different people.
 
-How we got there: the customer's verified date of birth comes from an onboarding-team note (`NOTE-CA9BBC`), which outranks the declared one. The hit has no `dobs` and no age in its profile notes, so the date comes from a search result. The result is kept only because it describes the same kind of listing in a country tied to the hit, and its "aged N in <month year>" gives two possible years. The customer's year is more than one year outside both, so every birth date is contradicted. Evidence: `NOTE-CA9BBC`, `SR-A88751`.
+How we got there: the hit has no `dobs` field, so the birth date comes from the first paragraph of its profile notes, where an age is stated at a dated report. An age at a date gives two possible years, here 1988 or 1989. The customer's year is more than one year outside both, so every birth date the hit gives is contradicted, which is the SOP's `DOB_MISMATCH`.
 
-**2. A match: `H-4D76E3`, `SAME_ENTITY / NAME_DOB_LOCATION_MATCH`**
+**2. A match: `H-RC09`, `SAME_ENTITY / NAME_DOB_LOCATION_MATCH`**
 
-> The customer's name "MOHAMMAD NADEEM GHANI" (NOTE-4E8A14) agrees with the hit's name "Mohammad Nadeem Ghani". The customer's date of birth 1968-02-17 (NOTE-4E8A14) agrees with the hit's 1968-02. Both are tied to Pakistan and United Kingdom. Nothing in the records contradicts the match.
+> The customer's name "Yannick Strode" (KYC-RC0902) agrees with the hit's name "Yannick Strode". The customer's date of birth 1985-03-03 (CUS-RC0902) agrees with the hit's 1985-03-03. Both are tied to United Kingdom. Nothing in the records contradicts the match.
 
-How we got there: the alert's account leads to `CUS-970916`; a second record, `CUS-906311`, is merged into the same person by the SOP's merge rules (shared phone and full date of birth, or the same document number on approved checks), so both are cited. That person's latest approved check is a note (`NOTE-4E8A14`), which gives the verified name and date of birth. The hit gives only a year and month, and the two agree in every part both give. This hit was an unsafe clearance (cost 60) in an early build, before notes were read: without the note's date of birth, a declared one contradicted the hit.
+How we got there: the alert leads to `CUS-RC0901`; a second record, `CUS-RC0902`, is the same person under the SOP's merge rules, so all their facts count and both are cited. The verified legal name comes from that person's approved identity check `KYC-RC0902`, which outranks what the customer typed. Name, date of birth and country all agree and nothing contradicts them.
 
-**3. Left for review: `H-7F2A6C`, `REVIEW / INSUFFICIENT_DATA`**
+**3. Left for review: `H-RC07`, `REVIEW / INSUFFICIENT_DATA`**
 
-> No contradiction rules the hit out, but there is not enough agreement to confirm it. A customer note (NOTE-F1D4BE) says they lived in Denmark, which the hit is also tied to, so the hit cannot be cleared on location. The hit gives no date of birth. Known gaps: no date of birth in dobs, notes or search results, no dated report.
+> The customer's name "Lucan Ferreby" (CUS-RC0701) agrees with the hit's "Lucan Ferreby", and their date of birth 1968-11-03 (CUS-RC0701) agrees with the hit's 1968-11-03. However the customer is tied to United Kingdom and the hit only to Brazil. A country difference does not clear a hit whose name and date of birth agree, so an analyst must decide.
 
-How we got there: the customer's own records name other countries, so without the note this would clear on `LOCATION_MISMATCH`. A support note says the customer lived in a country the hit is tied to, which counts as a country tied to the customer, so nothing contradicts. The hit gives no date of birth anywhere, so nothing confirms either. The reason says exactly what is missing, and cites only the note that decided it.
+How we got there: every country tied to the customer differs from every country tied to the hit, which would normally clear on `LOCATION_MISMATCH`. But the SOP's exception applies here because name **and** date of birth both agree, so the engine does not clear and does not confirm: it sends the hit to an analyst and says why.
 
 ## Results
 
