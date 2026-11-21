@@ -158,8 +158,12 @@ def make(hit: HitProfile, decision: str, code: str, customer_record_id: Optional
         records = any(str(f.source).startswith("CUS-") for f in cdobs)
         s.append("The customer's date of birth is %s%s." % (
             _join([fmt_date(f) + _src(f) for f in cdobs[:2]]), ""))
-        s.append("The hit gives a date of birth of %s, and every one of these is contradicted by the "
-                 "customer's." % _join([fmt_claim(b) + _src(b) for b in births[:3]]))
+        claims = _join([fmt_claim(b) + _src(b) for b in births[:3]])
+        if len(births) == 1:
+            s.append("The hit gives a date of birth of %s, which the customer's contradicts." % claims)
+        else:
+            s.append("The hit gives dates of birth of %s, and the customer's contradicts every one of them."
+                     % claims)
         s.append("The dates of birth show they are different people.")
 
     elif code == "NAME_MISMATCH_VERIFIED":
