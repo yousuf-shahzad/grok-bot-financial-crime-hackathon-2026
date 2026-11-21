@@ -1,8 +1,12 @@
 """Module A loader: load(folder) -> Data (contract in docs/track2/PLAN.md section 5A).
 
-Reads every *.jsonl in the given folder (a missing file gives empty indexes).
-Rows stay raw dicts exactly as read. Every list in every index is sorted by the
-row's own ID so iteration is deterministic. Standard library only.
+Reads each table from the given folder only: `<name>.jsonl`, else `<name>.json`.
+A file may be JSON Lines or one JSON array of rows (or an object wrapping one
+list of rows). A UTF-8 BOM, blank lines and malformed lines are skipped
+silently; a missing or unreadable file gives empty indexes. Rows stay raw
+dicts exactly as read. Index keys are strings (numbers are turned into text),
+and every list in every index is sorted by the row's own ID (stable, so file
+order breaks ties) so iteration is deterministic. Standard library only.
 """
 from __future__ import annotations
 
@@ -11,37 +15,53 @@ import os
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 
+def _text(v: Any) -> str:
+    """Value as stripped text; whole floats lose '.0' (123.0 -> '123')."""
+    if v is None or isinstance(v, bool):
+        return ""
+    if isinstance(v, float):
+        if v != v or v in (float("inf"), float("-inf")):
+            return ""
+        if v.is_integer():
+            return str(int(v))
+    if isinstance(v, (dict, list, tuple)):
+        return ""
+    return str(v).strip()
+
+
 def as_list(v: Any) -> List[str]:
-    """None -> []; list -> non-empty stripped strings; string -> split on ';'."""
+    """None -> []; list -> non-empty stripped strings; string -> split on ';'.
+
+    Numbers become one-item lists of their text; nested lists are flattened.
+    """
     if v is None:
         return []
     if isinstance(v, (list, tuple)):
-        items = v
-    else:
-        items = str(v).split(";")
-    out = []
-    for x in items:
-        if x is None:
-            continue
-        s = str(x).strip()
-        if s:
-            out.append(s)
-    return out
+        out: List[str] = []
+        for x in v:
+            if isinstance(x, (list, tuple)):
+                out.extend(as_list(x))
+            else:
+                s = _text(x)
+                if s:
+                    out.append(s)
+        return out
+    if isinstance(v, str):
+        return [s.strip() for s in v.split(";") if s.strip()]
+    s = _text(v)
+    return [s] if s else []
 
 
 def digits(s: Any) -> str:
-    """Keep only ASCII 0-9 ('+44 7700 900123' -> '447700900123')."""
-    if s is None:
-        return ""
-    return "".join(ch for ch in str(s) if "0" <= ch <= "9")
+    """Keep only ASCII 0-9 ('+44 7700 900123' -> '447700900123'; 447700900123.0 too)."""
+    return "".join(ch for ch in _text(s) if "0" <= ch <= "9")
 
 
-def _key(v: Any) -> str:
-    return "" if v is None else str(v).strip()
+_key = _text
 
 
 def _low(v: Any) -> str:
-    return _key(v).lower()
+    return _text(v).lower()
 
 
 class Data:
@@ -60,23 +80,69 @@ class Data:
         self.search_by_query: Dict[str, List[dict]] = {}
         self.hits: Dict[str, dict] = {}
         self.alerts: Dict[str, dict] = {}
-        self.name_variants: Optional[dict] = None
+        self.name_variants: Optional[Any] = None
 
 
-def _read_jsonl(folder: str, name: str) -> List[dict]:
-    path = os.path.join(folder, name)
-    if not os.path.isfile(path):
-        return []
+def _read_text(path: str) -> Optional[str]:
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+    except OSError:
+        return None
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
+    return raw.decode("utf-8", errors="replace")
+
+
+def _rows_from(obj: Any) -> Optional[List[dict]]:
+    """Rows from a parsed whole-file JSON value, or None if it is not a table."""
+    if isinstance(obj, list):
+        return [r for r in obj if isinstance(r, dict)]
+    if isinstance(obj, dict):
+        lists = [obj[k] for k in sorted(obj, key=str) if isinstance(obj[k], list)]
+        if len(lists) == 1 and all(isinstance(r, dict) for r in lists[0]):
+            return list(lists[0])
+        return [obj]  # a single row
+    return None
+
+
+def _parse_rows(text: str) -> List[dict]:
+    body = text.strip()
+    if body.startswith("["):
+        try:
+            rows = _rows_from(json.loads(body))
+            if rows is not None:
+                return rows
+        except ValueError:
+            pass
     rows: List[dict] = []
-    with open(path, encoding="utf-8-sig") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
+    for line in text.splitlines():
+        line = line.strip().lstrip("\ufeff").rstrip(",")
+        if not line or line in ("[", "]"):
+            continue
+        try:
             row = json.loads(line)
-            if isinstance(row, dict):
-                rows.append(row)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
     return rows
+
+
+def _table_path(folder: str, name: str) -> Optional[str]:
+    for ext in (".jsonl", ".json"):
+        path = os.path.join(folder, name + ext)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _read_table(folder: str, name: str) -> List[dict]:
+    path = _table_path(folder, name)
+    if path is None:
+        return []
+    text = _read_text(path)
+    return _parse_rows(text) if text else []
 
 
 def _index(rows: Iterable[dict], key: Callable[[dict], str]) -> Dict[str, List[dict]]:
@@ -96,15 +162,32 @@ def _by_id(rows: List[dict], id_field: str) -> Dict[str, dict]:
     out: Dict[str, dict] = {}
     for r in sorted(rows, key=lambda r: _key(r.get(id_field))):
         k = _key(r.get(id_field))
-        if k and k not in out:  # first row wins on a duplicate ID
+        if k and k not in out:  # first row (in file order) wins on a duplicate ID
             out[k] = r
     return out
+
+
+def _load_name_variants(folder: str) -> Optional[Any]:
+    """Parsed name_variants.json (dict or list, any shape names.use_variants accepts) or None."""
+    path = os.path.join(folder, "name_variants.json")
+    if not os.path.isfile(path):
+        return None
+    text = _read_text(path)
+    if not text or not text.strip():
+        return None
+    try:
+        nv = json.loads(text)
+    except ValueError:
+        return None
+    if isinstance(nv, (dict, list)) and nv:
+        return nv
+    return None
 
 
 def load(folder: str) -> Data:
     d = Data(folder)
 
-    customers = _read_jsonl(folder, "customers.jsonl")
+    customers = _read_table(folder, "customers")
     d.customers = _by_id(customers, "record_id")
     by_email: Dict[str, set] = {}
     by_phone: Dict[str, set] = {}
@@ -119,40 +202,34 @@ def load(folder: str) -> Data:
     d.customers_by_phone = {k: sorted(v) for k, v in sorted(by_phone.items())}
 
     acc_sort = lambda r: (_key(r.get("account_id")), _key(r.get("customer_id")), _key(r.get("login_handle")))
-    accounts = _read_jsonl(folder, "accounts.jsonl")
+    accounts = _read_table(folder, "accounts")
     d.accounts_by_id = _sort_lists(_index(accounts, lambda r: _key(r.get("account_id"))), acc_sort)
     d.accounts_by_login = _sort_lists(_index(accounts, lambda r: _low(r.get("login_handle"))), acc_sort)
     d.accounts_by_customer = _sort_lists(_index(accounts, lambda r: _key(r.get("customer_id"))), acc_sort)
 
-    onboarding = _read_jsonl(folder, "onboarding.jsonl")
+    onboarding = _read_table(folder, "onboarding")
     d.onboarding_by_customer = _sort_lists(
         _index(onboarding, lambda r: _key(r.get("customer_id"))),
         lambda r: (_key(r.get("account_id")), _key(r.get("kyc_applicant_id")), _key(r.get("onboarded_at"))),
     )
 
     kyc_sort = lambda r: _key(r.get("check_id"))
-    kyc = _read_jsonl(folder, "kyc_checks.jsonl")
+    kyc = _read_table(folder, "kyc_checks")
     d.kyc_by_applicant = _sort_lists(_index(kyc, lambda r: _key(r.get("applicant_id"))), kyc_sort)
     approved = [r for r in kyc if _low(r.get("result")) == "approved"]
     d.kyc_by_docnum = _sort_lists(_index(approved, lambda r: _key(r.get("document_number")).upper()), kyc_sort)
 
-    notes = _read_jsonl(folder, "notes.jsonl")
+    notes = _read_table(folder, "notes")
     d.notes_by_email = _sort_lists(
         _index(notes, lambda r: _low(r.get("requester_email"))), lambda r: _key(r.get("note_id"))
     )
 
-    search = _read_jsonl(folder, "search_results.jsonl")
+    search = _read_table(folder, "search_results")
     d.search_by_query = _sort_lists(
         _index(search, lambda r: _low(r.get("query"))), lambda r: _key(r.get("result_id"))
     )
 
-    d.hits = _by_id(_read_jsonl(folder, "hits.jsonl"), "hit_id")
-    d.alerts = _by_id(_read_jsonl(folder, "alerts.jsonl"), "alert_id")
-
-    nv_path = os.path.join(folder, "name_variants.json")
-    if os.path.isfile(nv_path):
-        with open(nv_path, encoding="utf-8-sig") as fh:
-            nv = json.load(fh)
-        d.name_variants = nv
-
+    d.hits = _by_id(_read_table(folder, "hits"), "hit_id")
+    d.alerts = _by_id(_read_table(folder, "alerts"), "alert_id")
+    d.name_variants = _load_name_variants(folder)
     return d
