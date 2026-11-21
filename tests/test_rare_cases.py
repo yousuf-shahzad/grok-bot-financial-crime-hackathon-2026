@@ -5,6 +5,10 @@ from SPEC.md (the SOP), not from the engine's current output.
 Runs the real entry point system/run with bash when one is found (Git Bash on
 Windows), otherwise system/main.py with this Python.
 
+Rules only, offline: the run's environment drops every LLM key (OPENROUTER_API_KEY,
+XAI_API_KEY and any other *_API_KEY) so the optional cross-examiner hook in main.py
+has no provider and the decisions are the deterministic rules' decisions.
+
 Run: py -3 -X utf8 -m unittest discover -s tests
 """
 from __future__ import annotations
@@ -54,7 +58,9 @@ def run_fixture():
         cmd = [bash, _posix(RUN), _posix(FIXTURE), _posix(out)]
     else:
         cmd = [sys.executable, "-X", "utf8", MAIN, FIXTURE, out]
-    env = dict(os.environ, PYTHONHASHSEED="0", PYTHONIOENCODING="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.upper().endswith("_API_KEY")}
+    env.update(PYTHONHASHSEED="0", PYTHONIOENCODING="utf-8", OPENROUTER_API_KEY="", XAI_API_KEY="",
+               CROSSEXAM="0", NO_LLM="1")
     proc = subprocess.run(cmd, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           timeout=300)
     lines = []
@@ -156,6 +162,104 @@ class RareCasesTest(unittest.TestCase):
     def test_12_placeholder_hit_name_cannot_clear(self):
         self.expect("H-RC12", REVIEW, "INSUFFICIENT_DATA", cid="CUS-RC1201")
 
+
+    # ---- reworded notes (wording invented, not in dev): KYC verifications -------------------
+    def test_21_kyc_note_provider_first_active_vetted(self):
+        d = self.expect("H-RC21", SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC2101")
+        self.assertIn("NOTE-RC0001", d["evidence"])
+
+    def test_22_kyc_note_country_first_passive_cleared(self):
+        d = self.expect("H-RC22", SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC2201")
+        self.assertIn("NOTE-RC0002", d["evidence"])
+
+    def test_23_kyc_note_successfully_confirming(self):
+        d = self.expect("H-RC23", SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC2301")
+        self.assertIn("NOTE-RC0003", d["evidence"])
+
+    def test_24_kyc_note_verifies_other_legal_name(self):
+        d = self.expect("H-RC24", DIFF, "NAME_MISMATCH_VERIFIED", cid="CUS-RC2401")
+        self.assertIn("NOTE-RC0004", d["evidence"])
+
+    # ---- failure words: never a verification (a wrong one would clear on name) ---------------
+    def _not_verified(self, n):
+        hid, note_id = "H-RC%02d" % n, "NOTE-RC%04d" % (n - 20)
+        d = self.expect(hid, SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC%02d01" % n)
+        self.assertNotIn(note_id, d["evidence"])
+
+    def test_25_failure_word_rejected(self):
+        self._not_verified(25)
+
+    def test_26_failure_word_failed(self):
+        self._not_verified(26)
+
+    def test_27_failure_word_unable(self):
+        self._not_verified(27)
+
+    def test_28_failure_word_expired(self):
+        self._not_verified(28)
+
+    def test_29_failure_word_declined(self):
+        self._not_verified(29)
+
+    def test_30_failure_word_mismatch(self):
+        self._not_verified(30)
+
+    # ---- names: bracketed aliases, placeholder tokens ----------------------------------------
+    def test_31_bracketed_aliases(self):
+        self.expect("H-RC31", SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC3101")
+
+    def test_32_placeholder_tokens_inside_names(self):
+        self.expect("H-RC32", SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC3201")
+
+    # ---- date formats ------------------------------------------------------------------------
+    def test_33_month_d_yyyy_vs_d_mon_yyyy(self):
+        self.expect("H-RC33", SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC3301")
+
+    def test_34_day_first_slash_vs_year_month(self):
+        self.expect("H-RC34", SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC3401")
+
+    def test_35_one_year_off_is_review_not_clear(self):
+        self.expect("H-RC35", REVIEW, "INSUFFICIENT_DATA", cid="CUS-RC3501")
+
+    def test_36_d_month_yyyy_vs_year_mismatch(self):
+        self.expect("H-RC36", DIFF, "DOB_MISMATCH", cid="CUS-RC3601")
+
+    # ---- reworded ages in the profile ----------------------------------------------------------
+    def test_37_aged_n_at_the_time_of_report(self):
+        self.expect("H-RC37", SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC3701")
+
+    def test_38_then_n(self):
+        self.expect("H-RC38", SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC3801")
+
+    def test_39_reworded_age_contradicts(self):
+        self.expect("H-RC39", DIFF, "DOB_MISMATCH", cid="CUS-RC3901")
+
+    # ---- death wording -------------------------------------------------------------------------
+    def test_40_died_in(self):
+        self.expect("H-RC40", DIFF, "DECEASED", cid="CUS-RC4001")
+
+    def test_41_passed_away_on(self):
+        self.expect("H-RC41", DIFF, "DECEASED", cid="CUS-RC4101")
+
+    def test_42_deceased_since(self):
+        self.expect("H-RC42", DIFF, "DECEASED", cid="CUS-RC4201")
+
+    # ---- company vs person profiles ----------------------------------------------------------
+    def test_43_organisation_hit_vs_person(self):
+        self.expect("H-RC43", DIFF, "ENTITY_TYPE_MISMATCH", cid="CUS-RC4301")
+
+    def test_44_person_hit_vs_company(self):
+        self.expect("H-RC44", DIFF, "ENTITY_TYPE_MISMATCH", cid="CUS-RC4401")
+
+    # ---- lived-in note, country named first ------------------------------------------------
+    def test_45_lived_in_country_first(self):
+        d = self.expect("H-RC45", SAME, "NAME_DOB_LOCATION_MATCH", cid="CUS-RC4501")
+        self.assertIn("NOTE-RC0011", d["evidence"])
+
+    # ---- determinism -------------------------------------------------------------------------
+    def test_second_run_identical(self):
+        _, _, again = run_fixture()
+        self.assertEqual(again, self.out)
 
 if __name__ == "__main__":
     unittest.main()
