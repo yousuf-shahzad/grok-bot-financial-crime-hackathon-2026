@@ -37,3 +37,4 @@
 {"account_id": "ACC-RC43", "customer_id": "CUS-RC4301", "login_handle": "acc-rc43_user", "opened_at": "2020-01-15", "phone": null, "status": "active"}
 {"account_id": "ACC-RC44", "customer_id": "CUS-RC4401", "login_handle": "acc-rc44_user", "opened_at": "2020-01-15", "phone": null, "status": "active"}
 {"account_id": "ACC-RC45", "customer_id": "CUS-RC4501", "login_handle": "acc-rc45_user", "opened_at": "2020-01-15", "phone": null, "status": "active"}
+{"account_id": "ACC-RC46", "customer_id": "CUS-RC4601", "login_handle": "acc-rc46_user", "opened_at": "2020-01-15", "phone": null, "status": "active"}
