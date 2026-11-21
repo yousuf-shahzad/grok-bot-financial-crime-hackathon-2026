@@ -1,42 +1,57 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActionIcon, AppShell, Badge, Box, Button, Center, Drawer, Group, Loader, Menu, Modal, ScrollArea, SegmentedControl,
-  Stack, Switch, Table, Text, TextInput, ThemeIcon, Title, Tooltip, useMantineColorScheme, Avatar, Select, Code,
-} from "@mantine/core";
-import { useDisclosure, useLocalStorage } from "@mantine/hooks";
-import {
-  IconMoon, IconSun, IconScale, IconSearch, IconEyeOff, IconUserCircle, IconLogout, IconDownload, IconRobot,
-} from "@tabler/icons-react";
-import { api, CaseRow, Summary, Bucket } from "./api";
-import { AppCtx, Reviewer } from "./shared";
-import Queue from "./components/Queue";
-import Overview from "./components/Overview";
-import CaseView from "./components/CaseView";
+  RiScales3Line, RiHome5Line, RiInboxLine, RiUserFollowLine, RiFlaskLine, RiAlertLine, RiCheckboxCircleLine,
+  RiListCheck2, RiMoonLine, RiSunLine, RiDownloadLine, RiLogoutBoxRLine,
+} from "@remixicon/react";
+import { Button } from "@/components/base/buttons/button";
+import { Switch } from "@/components/base/switch/switch";
+import { SearchField } from "@/components/base/search-field/search-field";
+import { Spinner } from "@/components/base/spinner/spinner";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { Modal, ModalBody, ModalDialog, ModalHeader, ModalFooter } from "@/components/base/modal/modal";
+import { Select, SelectItem } from "@/components/base/select/select";
+import { Input } from "@/components/base/input/input";
+import { Notification } from "@/components/base/notification/notification";
+import { cx } from "@/utils/cx";
+import { api, type Bucket, type CaseRow, type Summary } from "./api";
+import { AppCtx, BUCKET, SYS, StatusChip, type Reviewer } from "./ui";
+import Overview from "./Overview";
+import CaseView from "./CaseView";
 
-export type QueueKey = "decide" | "approve" | "qa" | "matches" | "clears" | "escalated" | "closed" | "all";
-export const QUEUES: { key: QueueKey; label: string; buckets: Bucket[] | null; qa?: boolean; hint: string }[] = [
-  { key: "decide", label: "To decide", buckets: ["needs_decision", "returned"], hint: "The engine could not settle these: your call." },
-  { key: "approve", label: "To approve", buckets: ["pending_approval"], hint: "Four-eyes: approve or return a colleague's decision." },
-  { key: "qa", label: "QA sample", buckets: ["proposed_clear"], qa: true, hint: "1 in 10 engine clearances, for human spot-checks." },
-  { key: "matches", label: "Proposed matches", buckets: ["proposed_match"], hint: "The engine thinks the hit is the customer." },
-  { key: "clears", label: "Proposed clears", buckets: ["proposed_clear"], hint: "The engine found a named contradiction." },
-  { key: "escalated", label: "Escalated", buckets: ["escalated"], hint: "Sent for more information or a second-line view." },
-  { key: "closed", label: "Closed", buckets: ["done"], hint: "Decided and approved by two different people." },
-  { key: "all", label: "All", buckets: null, hint: "Every hit." },
+export type QueueKey = "overview" | "decide" | "approve" | "qa" | "escalated" | "closed" | "all";
+const QUEUES: { key: QueueKey; label: string; icon: typeof RiInboxLine; buckets: Bucket[] | null; qa?: boolean; hint: string }[] = [
+  { key: "decide", label: "To decide", icon: RiInboxLine, buckets: ["needs_decision", "returned", "proposed_match"], hint: "Cases the engine could not settle, and proposed matches." },
+  { key: "approve", label: "To approve", icon: RiUserFollowLine, buckets: ["pending_approval"], hint: "A colleague decided; a second person must approve." },
+  { key: "qa", label: "QA sample", icon: RiFlaskLine, buckets: ["proposed_clear"], qa: true, hint: "1 in 10 engine clearances, for a human spot-check." },
+  { key: "escalated", label: "Escalated", icon: RiAlertLine, buckets: ["escalated"], hint: "Waiting on more information." },
+  { key: "closed", label: "Closed", icon: RiCheckboxCircleLine, buckets: ["done"], hint: "Decided and approved by two people." },
+  { key: "all", label: "All hits", icon: RiListCheck2, buckets: null, hint: "Every hit, including engine clearances." },
 ];
+
+function load<T>(k: string, d: T): T { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : d; } catch { return d; } }
+function save(k: string, v: unknown) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } }
 
 function SignIn({ onDone }: { onDone: (r: Reviewer) => void }) {
   const [name, setName] = useState("");
-  const [role, setRole] = useState<string | null>("analyst");
+  const [role, setRole] = useState<Reviewer["role"]>("analyst");
   return (
-    <Modal opened onClose={() => {}} withCloseButton={false} centered title={<Title order={4}>Sign in to Case Review</Title>}>
-      <Stack>
-        <Text size="sm" c="dimmed">Every decision is recorded in an append-only audit log under your name. In production this is where single sign-on plugs in.</Text>
-        <TextInput label="Your name" placeholder="e.g. Alex Morgan" value={name} onChange={(e) => setName(e.currentTarget.value)} data-autofocus />
-        <Select label="Role" value={role} onChange={setRole} allowDeselect={false}
-                data={[{ value: "analyst", label: "Analyst (makes decisions)" }, { value: "checker", label: "Checker (approves decisions)" }, { value: "qa", label: "QA reviewer" }]} />
-        <Button disabled={name.trim().length < 2} onClick={() => onDone({ name: name.trim(), role: (role as Reviewer["role"]) || "analyst" })}>Start reviewing</Button>
-      </Stack>
+    <Modal isOpen isDismissable={false} size="sm">
+      <ModalDialog aria-label="Sign in">
+        <ModalHeader title="Sign in to review" description="Every decision is recorded under your name in an audit log that cannot be edited." showCloseButton={false} />
+        <ModalBody>
+          <div className="flex flex-col gap-4">
+            <Input label="Your name" placeholder="e.g. Alex Morgan" value={name} onChange={setName} autoFocus />
+            <Select label="Role" selectedKey={role} onSelectionChange={(k) => setRole(k as Reviewer["role"])}>
+              <SelectItem id="analyst">Analyst: makes decisions</SelectItem>
+              <SelectItem id="checker">Checker: approves decisions</SelectItem>
+              <SelectItem id="qa">QA reviewer</SelectItem>
+            </Select>
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="primary" disabled={name.trim().length < 2} onClick={() => onDone({ name: name.trim(), role })}>Start reviewing</Button>
+        </ModalFooter>
+      </ModalDialog>
     </Modal>
   );
 }
@@ -45,155 +60,172 @@ export default function App() {
   const [ready, setReady] = useState<string | true>("connecting");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [rows, setRows] = useState<CaseRow[]>([]);
-  const [queue, setQueue] = useLocalStorage<QueueKey>({ key: "cr-queue", defaultValue: "decide" });
+  const [queue, setQueueState] = useState<QueueKey>(() => load("cr-queue2", "overview"));
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const [reviewer, setReviewer] = useLocalStorage<Reviewer | null>({ key: "cr-reviewer", defaultValue: null });
-  const [blind, setBlind] = useLocalStorage<boolean>({ key: "cr-blind", defaultValue: false });
+  const [reviewer, setReviewerState] = useState<Reviewer | null>(() => load("cr-reviewer2", null));
+  const [blind, setBlindState] = useState<boolean>(() => load("cr-blind2", false));
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const [tick, setTick] = useState(0);
-  const [recordId, setRecordId] = useState<string | null>(null);
   const [record, setRecord] = useState<{ id: string; kind: string; row: Record<string, unknown> } | null>(null);
-  const [drawerOpen, drawer] = useDisclosure(false);
-  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const [toasts, setToasts] = useState<{ id: number; t: string; d?: string; ok: boolean }[]>([]);
+
+  const setQueue = (q: QueueKey) => { setQueueState(q); save("cr-queue2", q); setSelected(null); };
+  const setReviewer = (r: Reviewer | null) => { setReviewerState(r); save("cr-reviewer2", r); };
+  const setBlind = (b: boolean) => { setBlindState(b); save("cr-blind2", b); };
+  const toggleDark = () => { const d = !dark; setDark(d); document.documentElement.classList.toggle("dark", d); save("cr-dark", d ? 1 : 0); try { localStorage.setItem("cr-dark", d ? "1" : "0"); } catch { /* */ } };
+  const toast = useCallback((t: string, d?: string, ok = true) => {
+    const id = Date.now() + Math.random();
+    setToasts((x) => [...x, { id, t, d, ok }]);
+    setTimeout(() => setToasts((x) => x.filter((y) => y.id !== id)), 4500);
+  }, []);
 
   useEffect(() => {
     let stop = false;
     const poll = async () => {
-      try {
-        const s = await api.status();
-        if (s.ready) { setReady(true); return; }
-        setReady(s.status);
-      } catch { setReady("waiting for the server"); }
+      try { const s = await api.status(); if (s.ready) { setReady(true); return; } setReady(s.status); } catch { setReady("waiting for the server"); }
       if (!stop) setTimeout(poll, 800);
     };
     poll();
     return () => { stop = true; };
   }, []);
-
   useEffect(() => {
     if (ready !== true) return;
     api.summary().then(setSummary).catch(() => {});
     api.cases({}).then((r) => setRows(r.rows)).catch(() => {});
   }, [ready, tick]);
 
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
   const openRecord = useCallback((id: string) => {
-    setRecordId(id); setRecord(null); drawer.open();
+    setRecord({ id, kind: "loading", row: {} });
     api.record(id).then(setRecord).catch(() => setRecord({ id, kind: "not found", row: {} }));
-  }, [drawer]);
+  }, []);
 
   const counts = useMemo(() => {
-    const c: Record<QueueKey, number> = { decide: 0, approve: 0, qa: 0, matches: 0, clears: 0, escalated: 0, closed: 0, all: rows.length };
-    for (const r of rows) {
-      for (const q of QUEUES) {
-        if (q.key === "all" || !q.buckets) continue;
-        if (q.buckets.includes(r.bucket) && (!q.qa || r.qa_sample)) c[q.key] += 1;
-      }
-    }
+    const c = {} as Record<QueueKey, number>;
+    for (const q of QUEUES) c[q.key] = rows.filter((r) => !q.buckets || (q.buckets.includes(r.bucket) && (!q.qa || r.qa_sample))).length;
     return c;
   }, [rows]);
-
+  const current = QUEUES.find((q) => q.key === queue);
   const visible = useMemo(() => {
-    const q = QUEUES.find((x) => x.key === queue)!;
+    if (!current) return [];
     const s = search.trim().toLowerCase();
-    return rows.filter((r) => (!q.buckets || q.buckets.includes(r.bucket)) && (!q.qa || r.qa_sample)
-      && (!s || `${r.hit_id} ${r.alert_id} ${r.hit_name} ${r.screened_name} ${r.system.reason_code}`.toLowerCase().includes(s)));
-  }, [rows, queue, search]);
+    return rows.filter((r) => (!current.buckets || (current.buckets.includes(r.bucket) && (!current.qa || r.qa_sample)))
+      && (!s || `${r.hit_id} ${r.alert_id} ${r.hit_name} ${r.screened_name}`.toLowerCase().includes(s)));
+  }, [rows, current, search]);
 
   if (ready !== true) {
-    return <Center h="100vh"><Stack align="center" gap="xs"><Loader /><Text c="dimmed">Engine: {ready}...</Text></Stack></Center>;
+    return <div className="flex h-full flex-col items-center justify-center gap-3"><Spinner size="lg" /><p className="text-body-regular text-text-secondary">Engine: {ready}...</p></div>;
   }
 
   return (
-    <AppCtx.Provider value={{ openRecord, reviewer, blind, refresh }}>
+    <AppCtx.Provider value={{ openRecord, reviewer, blind, toast }}>
       {!reviewer && <SignIn onDone={setReviewer} />}
-      <AppShell header={{ height: 60 }} navbar={{ width: { base: 300, lg: 340 }, breakpoint: "sm" }} padding="lg">
-        <AppShell.Header>
-          <Group h="100%" px="md" justify="space-between" wrap="nowrap">
-            <Group gap="sm" wrap="nowrap" style={{ cursor: "pointer" }} onClick={() => setSelected(null)}>
-              <ThemeIcon size="lg" radius="md" variant="gradient" gradient={{ from: "indigo", to: "violet" }}><IconScale size={20} /></ThemeIcon>
-              <Box>
-                <Text fw={700} lh={1.1}>Alibi</Text>
-                <Text size="xs" c="dimmed" lh={1.1}>Sanctions screening case review</Text>
-              </Box>
-            </Group>
-            <Group gap="sm" wrap="nowrap">
-              {summary && (
-                <Tooltip label={summary.llm === "rules only (no LLM key)" ? "No LLM key: rules only" : "Grok re-reads the text behind every clearance and can only send it back to review"} withArrow>
-                  <Badge variant="light" color={summary.llm.startsWith("rules") ? "gray" : "violet"} leftSection={<IconRobot size={12} />} visibleFrom="md">
-                    {summary.llm.startsWith("rules") ? "Rules only" : "Grok cross-examiner on"}
-                  </Badge>
-                </Tooltip>
-              )}
-              {summary?.blindfold && <Badge color="orange" variant="filled">Demo: note parser off</Badge>}
-              <Tooltip label="Hide the engine's recommendation until you have chosen (FCA good practice against anchoring)" withArrow multiline w={260}>
-                <Switch checked={blind} onChange={(e) => setBlind(e.currentTarget.checked)} label="Blind review" thumbIcon={<IconEyeOff size={10} />} visibleFrom="sm" />
-              </Tooltip>
-              <Tooltip label="Download every decision, with the approved human call where one exists" withArrow>
-                <ActionIcon variant="default" size="lg" component="a" href="/api/reviewed_decisions.jsonl" download="reviewed_decisions.jsonl" aria-label="Download decisions"><IconDownload size={18} /></ActionIcon>
-              </Tooltip>
-              <ActionIcon variant="default" size="lg" onClick={toggleColorScheme} aria-label="Toggle colour scheme">
-                {colorScheme === "dark" ? <IconSun size={18} /> : <IconMoon size={18} />}
-              </ActionIcon>
-              {reviewer && (
-                <Menu position="bottom-end" withArrow>
-                  <Menu.Target>
-                    <Button variant="subtle" color="gray" leftSection={<Avatar size="sm" color="indigo">{reviewer.name.slice(0, 2).toUpperCase()}</Avatar>}>
-                      <Box visibleFrom="md"><Text size="sm" fw={600} lh={1.1}>{reviewer.name}</Text><Text size="xs" c="dimmed" lh={1.1} tt="capitalize">{reviewer.role}</Text></Box>
-                    </Button>
-                  </Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Label>Signed in as {reviewer.name}</Menu.Label>
-                    <Menu.Item leftSection={<IconUserCircle size={14} />} onClick={() => setReviewer(null)}>Switch reviewer</Menu.Item>
-                    <Menu.Item leftSection={<IconLogout size={14} />} color="red" onClick={() => setReviewer(null)}>Sign out</Menu.Item>
-                  </Menu.Dropdown>
-                </Menu>
-              )}
-            </Group>
-          </Group>
-        </AppShell.Header>
+      <div className="flex h-full min-h-0">
+        {/* Navigation rail */}
+        <nav className="flex w-60 shrink-0 flex-col border-r border-separator-border bg-background-primary-default">
+          <button type="button" onClick={() => setQueue("overview")} className="flex items-center gap-3 px-5 py-5 text-left">
+            <span className="flex size-9 items-center justify-center rounded-lg bg-accent-600 text-white"><RiScales3Line size={20} /></span>
+            <span><span className="block text-headline-bold text-text-primary">Alibi</span><span className="block text-caption-1-regular text-text-tertiary">Sanctions case review</span></span>
+          </button>
+          <div className="flex flex-col gap-0.5 px-3">
+            <NavItem active={queue === "overview"} icon={RiHome5Line} label="Overview" onClick={() => setQueue("overview")} />
+            <p className="mt-4 mb-1 px-3 text-caption-1-semibold text-text-tertiary uppercase">Work queues</p>
+            {QUEUES.map((q) => <NavItem key={q.key} active={queue === q.key} icon={q.icon} label={q.label} count={counts[q.key]} onClick={() => setQueue(q.key)} />)}
+          </div>
+          <div className="mt-auto flex flex-col gap-3 border-t border-separator-border p-4">
+            <Switch isSelected={blind} onChange={setBlind} size="sm">Blind review</Switch>
+            <div className="flex gap-2">
+              <Button size="small" variant="secondary" leadingIcon={dark ? RiSunLine : RiMoonLine} onClick={toggleDark}>{dark ? "Light" : "Dark"}</Button>
+              <a href="/api/reviewed_decisions.jsonl" download="reviewed_decisions.jsonl" className="inline-flex items-center gap-1 rounded-lg border border-separator-border px-2.5 py-1 text-caption-1-medium text-text-secondary hover:text-text-primary"><RiDownloadLine size={14} />Export</a>
+            </div>
+            {reviewer && (
+              <div className="flex items-center gap-2">
+                <Avatar size="sm" initials={reviewer.name.slice(0, 1).toUpperCase()} />
+                <div className="min-w-0 flex-1"><p className="truncate text-body-2-semibold text-text-primary">{reviewer.name}</p><p className="text-caption-1-regular text-text-tertiary capitalize">{reviewer.role}</p></div>
+                <Button size="xs" variant="ghost" iconOnly leadingIcon={RiLogoutBoxRLine} aria-label="Switch reviewer" onClick={() => setReviewer(null)} />
+              </div>
+            )}
+          </div>
+        </nav>
 
-        <AppShell.Navbar>
-          <Stack gap={0} h="100%">
-            <Box p="md" pb="xs">
-              <SegmentedControl fullWidth size="xs" value={queue} onChange={(v) => setQueue(v as QueueKey)}
-                data={QUEUES.slice(0, 3).map((q) => ({ value: q.key, label: `${q.label} · ${counts[q.key]}` }))} />
-              <Select mt="xs" size="xs" value={queue} onChange={(v) => v && setQueue(v as QueueKey)} allowDeselect={false}
-                data={QUEUES.map((q) => ({ value: q.key, label: `${q.label} (${counts[q.key]})` }))} aria-label="Queue" />
-              <Text size="xs" c="dimmed" mt={6}>{QUEUES.find((q) => q.key === queue)!.hint}</Text>
-              <TextInput mt="xs" size="xs" placeholder="Search name, hit or alert ID" leftSection={<IconSearch size={14} />}
-                value={search} onChange={(e) => setSearch(e.currentTarget.value)} />
-            </Box>
-            <ScrollArea style={{ flex: 1 }} type="auto">
-              <Queue rows={visible} selected={selected} onSelect={setSelected} />
-            </ScrollArea>
-          </Stack>
-        </AppShell.Navbar>
-
-        <AppShell.Main>
-          {selected ? (
-            <CaseView key={selected + ":" + tick} hitId={selected} onDecided={() => { refresh(); }} />
-          ) : (
-            summary && <Overview summary={summary} counts={counts} tick={tick} onOpenQueue={(k) => setQueue(k)} />
-          )}
-        </AppShell.Main>
-      </AppShell>
-
-      <Drawer opened={drawerOpen} onClose={drawer.close} position="right" size="lg"
-              title={<Group gap="xs"><Text fw={700} ff="monospace">{recordId}</Text>{record && <Badge variant="light" tt="none">{record.kind.replace("_", " ")}</Badge>}</Group>}>
-        {!record ? <Loader size="sm" /> : (
-          <Table striped withTableBorder verticalSpacing="xs" layout="fixed">
-            <Table.Tbody>
-              {Object.entries(record.row).filter(([, v]) => v !== null && v !== "" && !(Array.isArray(v) && v.length === 0)).map(([k, v]) => (
-                <Table.Tr key={k}>
-                  <Table.Td w={150}><Text size="xs" c="dimmed">{k.replace(/_/g, " ")}</Text></Table.Td>
-                  <Table.Td><Text size="sm" className="prewrap">{Array.isArray(v) ? v.join("; ") : typeof v === "object" ? <Code>{JSON.stringify(v)}</Code> : String(v)}</Text></Table.Td>
-                </Table.Tr>
+        {/* Case list (hidden while a case is open, like an inbox) */}
+        {current && !selected && (
+          <aside className="flex w-[22rem] shrink-0 flex-col border-r border-separator-border bg-background-primary-default">
+            <div className="flex flex-col gap-2 border-b border-separator-border p-4">
+              <h2 className="text-title-3-semibold text-text-primary">{current.label} <span className="text-text-tertiary">{counts[current.key]}</span></h2>
+              <p className="text-caption-1-regular text-text-secondary">{current.hint}</p>
+              <SearchField aria-label="Search cases" placeholder="Search name or ID" value={search} onChange={setSearch} />
+            </div>
+            <ul className="min-h-0 flex-1 overflow-y-auto">
+              {visible.slice(0, 400).map((r) => (
+                <li key={r.hit_id}>
+                  <button type="button" onClick={() => setSelected(r.hit_id)}
+                    className={cx("flex w-full flex-col gap-1 border-b border-separator-border px-4 py-3 text-left hover:bg-background-secondary-default",
+                      selected === r.hit_id && "bg-background-secondary-default shadow-[inset_3px_0_0_var(--color-accent-500)]")}>
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-body-semibold text-text-primary">{r.hit_name}</span>
+                      <StatusChip color={BUCKET[r.bucket].color}>{BUCKET[r.bucket].label}</StatusChip>
+                    </span>
+                    <span className="truncate text-caption-1-regular text-text-secondary">Screened as {r.screened_name || "unknown"}</span>
+                    {!blind && !r.human && <span className="text-caption-1-regular text-text-tertiary">Engine: {SYS[r.system.decision].label} · {r.listing || "watchlist"}</span>}
+                    {r.human?.decision && <span className="text-caption-1-regular text-text-tertiary">{r.human.maker} chose {r.human.decision.toLowerCase()}</span>}
+                  </button>
+                </li>
               ))}
-            </Table.Tbody>
-          </Table>
+              {!visible.length && <li className="p-8 text-center text-body-regular text-text-tertiary">Nothing here.</li>}
+            </ul>
+          </aside>
         )}
-      </Drawer>
+
+        {/* Main */}
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          {selected ? (
+            <CaseView key={selected + tick} hitId={selected} backLabel={current ? current.label : "Overview"} onBack={() => setSelected(null)} onChanged={() => setTick((t) => t + 1)} />
+          ) : current ? (
+            <div className="flex h-full items-center justify-center p-10 text-center">
+              <div><p className="text-title-3-semibold text-text-primary">Pick a case</p><p className="mt-1 text-body-regular text-text-secondary">Choose a case from the list to see the evidence and decide.</p></div>
+            </div>
+          ) : (
+            summary && <Overview summary={summary} counts={counts} tick={tick} onOpen={(k) => setQueue(k)} />
+          )}
+        </main>
+      </div>
+
+      {record && (
+        <Modal isOpen onOpenChange={(o) => !o && setRecord(null)} isDismissable size="lg">
+          <ModalDialog aria-label={record.id}>
+            <ModalHeader title={record.id} description={record.kind.replace("_", " ")} />
+            <ModalBody>
+              <dl className="grid grid-cols-[10rem_1fr] gap-x-4 gap-y-2">
+                {Object.entries(record.row).filter(([, v]) => v !== null && v !== "" && !(Array.isArray(v) && !v.length)).map(([k, v]) => (
+                  <div key={k} className="contents">
+                    <dt className="text-caption-1-medium text-text-tertiary">{k.replace(/_/g, " ")}</dt>
+                    <dd className="text-body-2-regular whitespace-pre-wrap break-words text-text-primary">{Array.isArray(v) ? v.join("; ") : typeof v === "object" ? JSON.stringify(v) : String(v)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </ModalBody>
+          </ModalDialog>
+        </Modal>
+      )}
+
+      <div className="pointer-events-none fixed top-4 right-4 z-50 flex w-96 flex-col gap-2">
+        {toasts.map((t) => (
+          <div key={t.id} className="pointer-events-auto"><Notification title={t.t} description={t.d} status={t.ok ? "success" : "error"} dismissible onDismiss={() => setToasts((x) => x.filter((y) => y.id !== t.id))} /></div>
+        ))}
+      </div>
     </AppCtx.Provider>
+  );
+}
+
+function NavItem({ active, icon: Icon, label, count, onClick }: { active: boolean; icon: typeof RiInboxLine; label: string; count?: number; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick}
+      className={cx("flex items-center gap-3 rounded-lg px-3 py-2 text-left text-body-2-medium",
+        active ? "bg-background-secondary-default text-text-primary" : "text-text-secondary hover:bg-background-secondary-default hover:text-text-primary")}>
+      <Icon size={18} className={active ? "text-accent-600" : ""} />
+      <span className="flex-1">{label}</span>
+      {count !== undefined && <span className="text-caption-1-semibold text-text-tertiary">{count}</span>}
+    </button>
   );
 }
