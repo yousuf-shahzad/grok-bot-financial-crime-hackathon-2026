@@ -578,6 +578,65 @@ class UnvalidatedLLMView(Offline):
                 self.assertNotEqual(final.decision, DIFF)
 
 
+# ====================================== (e) enforce: right rules survive a plausible but wrong LLM
+@unittest.skipUnless(HAVE_DUAL, SKIP)
+class EnforceKeepsRightRules(Offline):
+    """DUAL_MODE=enforce. The rules are right and the LLM is plausible but wrong, e.g. it clears a location
+    mismatch although a date of birth is unknown, or calls a namesake who shares a country SAME_ENTITY.
+    The arbiter must keep the rules unless the screener disproves them with a record from the case."""
+
+    def setUp(self):
+        super().setUp()
+        if not _has_dual_mode():
+            self.skipTest("DUAL_MODE not on this branch yet")
+        saved = os.environ.get("DUAL_MODE")
+        self.addCleanup(lambda: os.environ.__setitem__("DUAL_MODE", saved) if saved is not None
+                        else os.environ.pop("DUAL_MODE", None))
+
+    def _e2e(self, screen):
+        if not os.path.isdir(FIXTURE):
+            self.skipTest("tests/fixtures/rare missing")
+        tmp = tempfile.mkdtemp(prefix="dual-enf-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        self.patch(main, "crossexam", None)
+        self.patch(main, "arbiter", None)
+        os.environ["DUAL_MODE"] = "off"
+        ref = os.path.join(tmp, "rules.jsonl")
+        self.assertEqual(main.main(["main.py", FIXTURE, ref]), 0)
+        main.arbiter = arbiter
+        os.environ["DUAL_MODE"] = "enforce"
+        st = self.stub(judge=view(SAME, "NAME_DOB_MATCH"), screen=screen)
+        out = os.path.join(tmp, "enforce.jsonl")
+        self.assertEqual(main.main(["main.py", FIXTURE, out]), 0)
+        self.assertIn("llm_judge", st.calls)
+        pick = lambda path: {h: (x["decision"], x["reason_code"]) for h, x in _lines(path).items()}  # noqa: E731
+        return pick(ref), pick(out)
+
+    def test_screener_backing_the_rules_keeps_every_line(self):
+        """Wrong judge everywhere, screener says the LLM erred: every decision and reason code kept."""
+        want, got = self._e2e(screen_answer("llm"))
+        self.assertEqual(got, want)
+
+    @unittest.expectedFailure  # guard pending: error_in=deterministic without a supplied cited record -> keep rules
+    def test_uncited_blame_keeps_every_line(self):
+        """Screener blames the rules but cites no record at all: the rules must stand (lead, 7064805375)."""
+        want, got = self._e2e(screen_answer("deterministic", missed=()))
+        self.assertEqual(got, want)
+
+    @unittest.expectedFailure  # guard pending: only IDs outside allowed_ids cited -> keep rules
+    def test_blame_citing_only_unsupplied_ids_keeps_the_rules(self):
+        """Location without DOB / namesake with a shared country: the LLM says SAME, the screener blames
+        the rules citing only a fabricated KYC id and hit/account ids. Not a disproof: rules stand."""
+        for dd, dc in PAIRS:
+            if dd == SAME:
+                continue
+            with self.subTest(det=dc):
+                self.stub(judge=None, screen=screen_answer("deterministic", missed=(FAKE, HID, ACC)))
+                d = det(dd, dc)
+                final, _ = arbiter.resolve(d, view(SAME, "NAME_DOB_MATCH"), CASE)
+                self.assertEqual((final.decision, final.reason_code), (d.decision, d.reason_code))
+
+
 # ================================================================= (c) no key = rules only
 RUNNER = r"""
 import sys, urllib.request
