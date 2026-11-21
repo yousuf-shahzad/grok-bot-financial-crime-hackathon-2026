@@ -2,5 +2,6 @@
 * text=auto
 *.sh text eol=lf
 tools/board text eol=lf
+system/run text eol=lf
 .claude/hooks/* text eol=lf
 *.jpg binary
