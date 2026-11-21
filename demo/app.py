@@ -166,8 +166,12 @@ def court(hit_prof, person, alert) -> dict:
         births = [BirthClaim(years=(v.year,), month=v.month, day=v.day, source=hit_prof.incorporated.source)]
 
     pros, dfn = [], []
-    name_pair = next(((c, h) for c in cnames for h in hit_prof.names
-                      if names.names_agree(str(c.value), str(h.value), company)), None)
+    if hasattr(judge, "name_match"):  # the judge's own SOP check, so the GUI can never disagree with the ruling
+        cf, hf = judge.name_match(hit_prof, person)
+        name_pair = (cf, hf) if cf is not None and hf is not None else None
+    else:
+        name_pair = next(((c, h) for c in cnames for h in hit_prof.names
+                          if names.names_agree(str(c.value), str(h.value), company)), None)
     if name_pair:
         pros.append({"what": "Name agrees", "detail": "%s (%s) ~ %s" % (name_pair[0].value, name_pair[0].kind or "name", name_pair[1].value),
                      "sources": [name_pair[0].source, name_pair[1].source]})
