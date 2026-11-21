@@ -262,13 +262,19 @@ _LOOKUP.setdefault("uk", "United Kingdom")   # not ISO, but common
 
 
 def normalise(s) -> Optional[str]:
-    """Canonical country name, or None if it is not a recognised country."""
+    """Canonical country name, or None if it is not a recognised country.
+
+    A place like "<city>, <region>, <Country>" falls back to its last comma part, as for addresses.
+    """
     if s is None:
         return None
     k = _key(s)
     if not k or k in NOT_COUNTRIES:
         return None
-    return _LOOKUP.get(k)
+    hit = _LOOKUP.get(k)
+    if hit is None and "," in str(s):
+        return from_address(s)
+    return hit
 
 
 def from_address(addr) -> Optional[str]:
