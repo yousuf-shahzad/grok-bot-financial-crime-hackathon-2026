@@ -1,1 +1,9 @@
 .board/
+
+# Hackathon data is for participants only: never commit it or any keys
+dev/
+data/
+*.xlsx
+.env
+.env.*
+!.env.example
