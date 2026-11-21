@@ -8,8 +8,8 @@ Short answer: **a lot of freedom in how we decide and in what we show, almost no
 |---|---|
 | Entry point `system/run <data folder> <output file>`. Must work when run from inside `system/` with **full paths**, from any working directory | Brief, deliverable 1 |
 | **Python 3 or Node.js standard library only, or shell.** No `pip install`, no `npm install`, no vendored third-party code | Brief |
-| A language model **only through OpenRouter**, key from env var `OPENROUTER_API_KEY`. No direct Grok, OpenAI, Anthropic, Tavily or other API calls in `system/`. The organisers set their own key when testing | Brief |
-| Reads **only** the data folder it is given and writes **only** the output file. No network calls other than OpenRouter (our reading of the brief: it names OpenRouter as the only allowed external call) | Brief |
+| A language model only through **OpenRouter** (`OPENROUTER_API_KEY`, set by the organisers when testing) **or the xAI Grok API** (`XAI_API_KEY`; the lead confirmed with the organisers on the day that the Grok API is allowed). No other model or web APIs (OpenAI, Anthropic, Tavily ...) in `system/` | Brief, plus organisers' confirmation |
+| Reads **only** the data folder it is given and writes **only** the output file. No network calls other than the LLM provider (our reading of the brief: it names OpenRouter as the only allowed external call) | Brief |
 | Run time **under 30 minutes** for the unseen set (about 550 hits) | Brief |
 | Output: one line per hit with `hit_id, alert_id, decision, reason_code, customer_record_id, reason, evidence`; reason code must belong to the decision | Brief and [SPEC.md](SPEC.md) |
 | **Deterministic**: same decision and reason code in all five runs | Scoring (10%) |
@@ -21,7 +21,7 @@ Short answer: **a lot of freedom in how we decide and in what we show, almost no
 ## Decisions that are free (our call)
 
 - **Architecture**: pure rules, LLM-only, or a hybrid. The brief says "how your system gets there is up to you." (Recommended: deterministic first, LLM only for what rules cannot read: see below.)
-- **Which model** on OpenRouter, prompts, retries, batching, caching, parallelism, as long as the 30-minute and determinism limits hold. A model can be used to read free text (profile notes, search snippets, customer notes) into structured facts.
+- **Which model** (Grok via xAI or OpenRouter), prompts, retries, batching, caching, parallelism, as long as the 30-minute and determinism limits hold. A model can be used to read free text (profile notes, search snippets, customer notes) into structured facts.
 - **How we resolve people** (indexes, blocking, scoring), as long as it follows the SOP's linking rules.
 - **Internal design**: modules, data structures, intermediate evidence graph, caches.
 - **Everything outside `system/`**: demo UI, evidence graph viewer, analyst-queue mock-up, slides, video, scoring and error-analysis tools. These do not count towards the Diligent score but do help the live demo and the event judges. Keep them in separate folders (for example `demo/`, `tools/`) and make sure `system/run` never depends on them.
@@ -45,7 +45,7 @@ Short answer: **a lot of freedom in how we decide and in what we show, almost no
 - **Clearing to look good.** A wrong clearance costs 60, a needless review 3. Never trade safety for a better headline number.
 - **Memorising or fitting to dev records** (case IDs, names, exact snippets), or any behaviour that depends on running only the dev set.
 - **Sharing the data or keys** outside the team (board, issues, PRs, public repo, screenshots, demo videos that show raw records).
-- **Running longer than 30 minutes** or calling anything but OpenRouter at run time.
+- **Running longer than 30 minutes** or calling anything but the LLM provider (OpenRouter or xAI) at run time.
 
 ## Questions for the organisers (ask at kick-off 10:30 or in Discord)
 
@@ -59,3 +59,9 @@ Short answer: **a lot of freedom in how we decide and in what we show, almost no
 ## Suggested stance: where to spend ambition
 
 Safe room for creativity: **how we resolve people** (this is where most score is lost), **the evidence representation** (graph of IDs with a decision trace that explains each verdict), **a calibrated "review" policy** (a principled way to decide the borderline hits), and **a demo** that shows an analyst queue with each hit's decision and the exact records behind it. Do not spend ambition on bigger models or extra data sources: the limits above remove most of the upside.
+
+## Decided on the day (lead)
+
+- **LLM use is one narrow cross-examiner** (`system/engine/crossexam.py`): it re-reads free text behind a clearance and can only turn that clearance into REVIEW. Provider order: `OPENROUTER_API_KEY` (the organisers' key when testing), then `XAI_API_KEY`, then none (rules only). Temperature 0, strict JSON schema, all comparisons done by our code.
+- **No database** (Supabase, Neon): the data is local files, `system/` is stdlib-only, and participants-only data must not go to a cloud service.
+- **No Tavily** in `system/` or the GUI: the brief supplies `search_results.jsonl`, live search breaks determinism, and dataset names must not be sent to outside services.
