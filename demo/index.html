@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Case Review</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #16181d; --muted: #5d6470; --line: #e3e6eb; --soft: #f0f2f5;
+  --clear: #137a4f; --clear-bg: #e5f4ec; --match: #b42318; --match-bg: #fdecea; --review: #9a6700; --review-bg: #fdf3dc;
+  --accent: #2f5bea; --chip: #eef1f6; --shadow: 0 1px 2px rgba(16,24,40,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --muted: #9aa2ae; --line: #2a2f38; --soft: #1d2128;
+    --clear: #4fd19b; --clear-bg: #12291f; --match: #ff8a80; --match-bg: #2d1616; --review: #f2c15c; --review-bg: #2b2414;
+    --accent: #7c9cff; --chip: #232833; --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --muted: #9aa2ae; --line: #2a2f38; --soft: #1d2128;
+  --clear: #4fd19b; --clear-bg: #12291f; --match: #ff8a80; --match-bg: #2d1616; --review: #f2c15c; --review-bg: #2b2414;
+  --accent: #7c9cff; --chip: #232833; --shadow: none;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+header .sub { color: var(--muted); font-size: 12px; }
+.stats { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.stat { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font-size: 12px; color: var(--muted); }
+.stat b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.stat.good b { color: var(--clear); } .stat.bad b { color: var(--match); }
+main { display: grid; grid-template-columns: minmax(320px, 38%) 1fr; height: calc(100% - 57px); }
+#left { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+.filters { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { flex: 1; border: 0; background: transparent; color: var(--muted); padding: 6px 4px; font: inherit; font-size: 12px; cursor: pointer; }
+.seg button.on { background: var(--soft); color: var(--ink); font-weight: 600; }
+.row2 { display: flex; gap: 8px; align-items: center; }
+input[type=search], select { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font: inherit; font-size: 13px; }
+label.tog { font-size: 12px; color: var(--muted); display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+#count { font-size: 12px; color: var(--muted); padding: 6px 12px; border-bottom: 1px solid var(--line); }
+#list { overflow: auto; flex: 1; }
+.item { padding: 9px 12px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: center; }
+.item:hover { background: var(--soft); } .item.sel { background: var(--soft); box-shadow: inset 3px 0 0 var(--accent); }
+.item .nm { font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .meta { grid-column: 2 / 4; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { font-size: 11px; font-weight: 650; padding: 2px 7px; border-radius: 999px; letter-spacing: .2px; white-space: nowrap; }
+.b-DIFFERENT_ENTITY { background: var(--clear-bg); color: var(--clear); }
+.b-SAME_ENTITY { background: var(--match-bg); color: var(--match); }
+.b-REVIEW { background: var(--review-bg); color: var(--review); }
+.truth { font-size: 11px; color: var(--muted); } .truth.ok { color: var(--clear); } .truth.no { color: var(--match); font-weight: 650; }
+#right { overflow: auto; padding: 20px 24px 40px; min-width: 0; }
+.empty { color: var(--muted); padding: 40px 0; text-align: center; }
+h2 { font-size: 18px; margin: 0 0 2px; } h3 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 650; }
+.vs { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+.ruling { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.ruling .badge { font-size: 13px; padding: 4px 12px; }
+.code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: var(--muted); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.reason { font-size: 14px; margin: 0 0 10px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; background: var(--chip); border: 1px solid var(--line); color: var(--ink); border-radius: 6px; padding: 2px 7px; cursor: pointer; }
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.court { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.side h3 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.pros .dot { background: var(--match); } .def .dot { background: var(--clear); }
+.arg { border-top: 1px solid var(--line); padding: 8px 0; } .arg:first-of-type { border-top: 0; }
+.arg .t { font-weight: 600; } .arg .d { color: var(--muted); font-size: 13px; margin: 2px 0 4px; }
+.arg.off .t { color: var(--muted); font-weight: 500; } .arg.off { opacity: .75; }
+.mark { font-size: 12px; font-weight: 700; margin-right: 6px; } .mark.y { color: var(--clear); } .mark.n { color: var(--muted); }
+.note { font-size: 12px; color: var(--review); }
+.tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.tabs button { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.tabs button.on { color: var(--ink); border-color: var(--accent); }
+dl { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; margin: 0; font-size: 13px; }
+dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.facts .src { margin-left: 4px; }
+.miss { color: var(--review); font-size: 13px; margin: 4px 0 0; padding-left: 18px; }
+.label { font-size: 13px; } .label.ok { color: var(--clear); } .label.no { color: var(--match); font-weight: 600; }
+#modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; padding: 16px; }
+#modal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; max-width: 760px; width: 100%; max-height: 80vh; overflow: auto; padding: 16px; }
+#modal pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; margin: 8px 0 0; }
+#modal .top { display: flex; justify-content: space-between; align-items: center; }
+button.x { border: 1px solid var(--line); background: var(--soft); color: var(--ink); border-radius: 8px; padding: 4px 10px; cursor: pointer; font: inherit; }
+#loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--muted); font-size: 14px; }
+@media (max-width: 860px) {
+  main { grid-template-columns: 1fr; height: auto; } #left { max-height: 50vh; } .court { grid-template-columns: 1fr; }
+  dl { grid-template-columns: 110px 1fr; } header { padding: 12px 16px; } #right { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<div id="loading">Starting the engine on the data folder...</div>
+<header>
+  <div><h1>Case Review</h1><div class="sub">Sanctions screening: is the hit the customer?</div></div>
+  <div class="stats" id="stats"></div>
+</header>
+<main>
+  <section id="left">
+    <div class="filters">
+      <div class="seg" id="seg">
+        <button data-d="" class="on">All</button><button data-d="DIFFERENT_ENTITY">Cleared</button>
+        <button data-d="SAME_ENTITY">Confirmed</button><button data-d="REVIEW">Review</button>
+      </div>
+      <div class="row2">
+        <select id="reason"><option value="">Any reason</option></select>
+        <label class="tog"><input type="checkbox" id="practice"> Practice only</label>
+      </div>
+      <input type="search" id="q" placeholder="Search name, hit or customer ID">
+    </div>
+    <div id="count"></div>
+    <div id="list"></div>
+  </section>
+  <section id="right"><div class="empty">Pick a hit on the left to see the case.</div></section>
+</main>
+<div id="modal"><div class="box"><div class="top"><b id="mtitle"></b><button class="x" onclick="closeModal()">Close</button></div><pre id="mbody"></pre></div></div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const LABEL = {DIFFERENT_ENTITY: "Cleared", SAME_ENTITY: "Confirmed", REVIEW: "Review"};
+let state = {decision: "", reason: "", q: "", practice: false, selected: null, person: 0, detail: null};
+
+async function api(path) { const r = await fetch(path); if (!r.ok) throw new Error((await r.json()).error || r.status); return r.json(); }
+const chip = (id) => id ? `<span class="chip" onclick="openRecord('${esc(id)}')">${esc(id)}</span>` : "";
+const badge = (d) => `<span class="badge b-${d}">${LABEL[d] || d}</span>`;
+
+async function boot() {
+  for (;;) { const s = await api("/api/status"); if (s.ready) break; $("#loading").textContent = "Engine: " + s.status + "..."; await new Promise((r) => setTimeout(r, 700)); }
+  $("#loading").remove();
+  const s = await api("/api/summary");
+  const n = (d) => Object.values(s.by_decision[d] || {}).reduce((a, b) => a + b, 0);
+  const p = s.practice;
+  $("#stats").innerHTML = [
+    `<span class="stat"><b>${s.hits}</b> hits, ${s.alerts} alerts</span>`,
+    `<span class="stat"><b>${n("DIFFERENT_ENTITY")}</b> cleared</span>`,
+    `<span class="stat"><b>${n("SAME_ENTITY")}</b> confirmed</span>`,
+    `<span class="stat"><b>${n("REVIEW")}</b> to review</span>`,
+    p.n ? `<span class="stat ${p.unsafe ? "bad" : "good"}">practice <b>${p.right}/${p.n}</b>, score <b>${p.score}%</b>, unsafe <b>${p.unsafe}</b></span>` : "",
+    `<span class="stat">engine run <b>${s.seconds}s</b></span>`].join("");
+  const codes = new Set(); Object.values(s.by_decision).forEach((m) => Object.keys(m).forEach((c) => codes.add(c)));
+  $("#reason").innerHTML += [...codes].sort().map((c) => `<option>${c}</option>`).join("");
+  loadList();
+}
+
+let t; function debounce(f) { clearTimeout(t); t = setTimeout(f, 180); }
+async function loadList() {
+  const qs = new URLSearchParams({decision: state.decision, reason: state.reason, q: state.q, practice: state.practice ? "1" : ""});
+  const r = await api("/api/hits?" + qs);
+  $("#count").textContent = `${r.total} hit${r.total === 1 ? "" : "s"}` + (r.total > r.rows.length ? ` (first ${r.rows.length})` : "");
+  $("#list").innerHTML = r.rows.map((x) => {
+    const truth = x.truth ? (x.truth === x.decision ? `<span class="truth ok">label agrees</span>` : `<span class="truth no">label: ${LABEL[x.truth]}</span>`) : "";
+    return `<div class="item ${x.hit_id === state.selected ? "sel" : ""}" data-h="${esc(x.hit_id)}">
+      ${badge(x.decision)}<span class="nm">${esc(x.hit_name)}</span>${truth}
+      <span class="meta">${esc(x.hit_id)} · screened as ${esc(x.screened || "?")} · ${esc(x.reason_code)}</span></div>`;
+  }).join("") || `<div class="empty">No hits match.</div>`;
+}
+
+async function select(hid) {
+  state.selected = hid; state.person = 0;
+  document.querySelectorAll(".item").forEach((e) => e.classList.toggle("sel", e.dataset.h === hid));
+  state.detail = await api("/api/hit/" + encodeURIComponent(hid)); render();
+}
+
+function factList(facts) { return (facts || []).map((f) => `${esc(f.value)}${f.kind ? ` <span class="code">${esc(f.kind)}</span>` : ""} ${chip(f.source)}`).join("<br>") || `<span class="code">none</span>`; }
+
+function render() {
+  const x = state.detail, d = x.decision, prof = x.profile, res = x.resolution;
+  const people = (res && res.people) || [];
+  const trial = x.court[state.person];
+  let label = "";
+  if (x.label) {
+    const ok = x.label.decision === d.decision;
+    label = `<div class="card"><h3>Practice label</h3><div class="label ${ok ? "ok" : "no"}">${ok ? "Agrees with the reference answer" : "Reference answer differs"}: ${badge(x.label.decision)} <span class="code">${esc(x.label.reason_codes)}</span></div>
+      <div class="vs" style="margin:8px 0 0">${esc(x.label.reference_reason)}</div></div>`;
+  }
+  const tabs = people.length > 1 ? `<div class="tabs">${people.map((p, i) => `<button class="${i === state.person ? "on" : ""}" onclick="state.person=${i};render()">Person ${i + 1}: ${esc(p.person_id)}</button>`).join("")}</div>` : "";
+  const pros = trial ? (trial.prosecution.length ? trial.prosecution.map((a) => `<div class="arg"><div class="t">${esc(a.what)}</div><div class="d">${esc(a.detail)}</div><div class="chips">${a.sources.map(chip).join("")}</div></div>`).join("") : `<div class="arg off"><div class="d">Nothing agrees.</div></div>`) : `<div class="arg off"><div class="d">No customer resolved, so nothing to compare.</div></div>`;
+  const def = trial ? trial.defence.map((a) => `<div class="arg ${a.holds ? "" : "off"}"><div class="t"><span class="mark ${a.holds ? "y" : "n"}">${a.holds ? "HOLDS" : "no"}</span>${esc(a.rule)}</div><div class="d">${esc(a.detail)}</div>${a.note ? `<div class="note">${esc(a.note)}</div>` : ""}</div>`).join("") : "";
+  const person = people[state.person];
+  $("#right").innerHTML = `
+    <h2>${esc(x.hit_raw.name)}</h2>
+    <div class="vs">${esc(d.hit_id)} · alert ${chip(d.alert_id)} · screened as <b>${esc(x.alert.customer_name || "?")}</b>${x.alert.dob ? ", born " + esc(x.alert.dob) : ""}${x.alert.country ? ", " + esc(x.alert.country) : ""} · ${esc(prof.listing_kind || "")}</div>
+    <div class="card">
+      <h3>The ruling</h3>
+      <div class="ruling">${badge(d.decision)}<span class="code">${esc(d.reason_code)}</span><span class="code">customer: ${esc(d.customer_record_id == null ? "none found" : d.customer_record_id)}</span></div>
+      <p class="reason">${esc(d.reason)}</p>
+      <div class="chips">${(d.evidence || []).map(chip).join("") || '<span class="code">no records cited</span>'}</div>
+    </div>
+    ${label}
+    ${tabs}
+    <div class="court">
+      <div class="card side pros"><h3><span class="dot"></span>Prosecution: same person</h3>${pros}</div>
+      <div class="card side def"><h3><span class="dot"></span>Defence: different person</h3>${def || '<div class="arg off"><div class="d">No customer to test.</div></div>'}</div>
+    </div>
+    <div class="court">
+      <div class="card facts"><h3>Who the customer is</h3>${person ? `<dl>
+        <dt>Records</dt><dd>${person.record_ids.map(chip).join(" ")}</dd>
+        <dt>Verified name</dt><dd>${person.verified_name ? factList([person.verified_name]) : '<span class="code">none</span>'}</dd>
+        <dt>Names on file</dt><dd>${factList(person.names)}</dd>
+        <dt>Verified DOB</dt><dd>${person.verified_dob ? factList([person.verified_dob]) : '<span class="code">none</span>'}</dd>
+        <dt>Declared DOBs</dt><dd>${factList(person.dobs)}</dd>
+        <dt>Countries</dt><dd>${factList(person.countries)}</dd>
+        <dt>Path</dt><dd>${(person.path || []).map(chip).join(" ") || '<span class="code">direct</span>'}</dd></dl>
+        <div class="vs" style="margin:8px 0 0">${esc(res.note)}</div>` : `<div class="vs">${esc(res ? res.note : "")}</div>`}</div>
+      <div class="card facts"><h3>Who the hit is</h3><dl>
+        <dt>Names</dt><dd>${factList(prof.names)}</dd>
+        <dt>Birth dates</dt><dd>${(prof.births || []).map((b) => esc(b) ).join("<br>") || '<span class="code">none found</span>'}</dd>
+        <dt>Countries</dt><dd>${factList(prof.countries)}</dd>
+        <dt>Earliest report</dt><dd>${prof.earliest_report ? factList([prof.earliest_report]) : '<span class="code">none</span>'}</dd>
+        <dt>Deceased</dt><dd>${prof.deceased ? factList([prof.deceased]) : '<span class="code">no</span>'}</dd>
+        <dt>Type</dt><dd>${esc(prof.entity_type)}</dd></dl>
+        ${(prof.missing || []).length ? `<h3 style="margin-top:12px">Known unknowns</h3><ul class="miss">${prof.missing.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>` : ""}
+      </div>
+    </div>`;
+}
+
+async function openRecord(id) {
+  try { const r = await api("/api/record/" + encodeURIComponent(id)); $("#mtitle").textContent = `${r.id} (${r.kind.replace("_", " ")})`; $("#mbody").textContent = JSON.stringify(r.row, null, 2); }
+  catch (e) { $("#mtitle").textContent = id; $("#mbody").textContent = "Not found in the data folder."; }
+  $("#modal").style.display = "flex";
+}
+function closeModal() { $("#modal").style.display = "none"; }
+$("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+$("#seg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; document.querySelectorAll("#seg button").forEach((x) => x.classList.toggle("on", x === b)); state.decision = b.dataset.d; loadList(); });
+$("#reason").addEventListener("change", (e) => { state.reason = e.target.value; loadList(); });
+$("#practice").addEventListener("change", (e) => { state.practice = e.target.checked; loadList(); });
+$("#q").addEventListener("input", (e) => { state.q = e.target.value; debounce(loadList); });
+$("#list").addEventListener("click", (e) => { const it = e.target.closest(".item"); if (it) select(it.dataset.h); });
+boot().catch((e) => { document.body.innerHTML = `<div class="empty">Could not start: ${esc(e.message)}</div>`; });
+</script>
+</body>
+</html>
